@@ -3,7 +3,8 @@
 Este projeto separa a tua app VetConnect em duas partes, prontas para alojar na
 **Vercel**:
 
-- **Frontend** — a tua app React (single-file), servida como site estático.
+- **Frontend** — app React (Vite), servida como site estático, com
+  autenticação e dados persistidos no Supabase.
 - **Backend** — duas funções serverless (`/api/diagnosis` e `/api/jobs-report`)
   que fazem de _proxy seguro_ para a API da Anthropic.
 
@@ -21,16 +22,30 @@ no servidor** (variável de ambiente na Vercel) e o browser nunca lhe toca.
 
 ```
 vetconnect/
+├── supabase/
+│   └── migrations/       # SQL: tabelas + RLS + triggers (correr no Supabase)
 ├── api/
 │   ├── _anthropic.js     # helper partilhado (não é rota — o "_" esconde-o)
 │   ├── diagnosis.js      # POST /api/diagnosis      → diagnóstico diferencial IA
 │   └── jobs-report.js    # POST /api/jobs-report     → relatório diário de vagas
 ├── src/
-│   ├── App.jsx           # << COLA AQUI o teu componente VetConnect >>
+│   ├── App.jsx           # shell: AuthProvider + separadores (feed/mensagens/vagas/soap/perfil)
 │   ├── main.jsx          # ponto de entrada React
 │   ├── index.css         # resets mínimos
+│   ├── styles.js         # primitivas de estilo inline partilhadas
+│   ├── context/
+│   │   └── AuthContext.jsx  # sessão Supabase + linha `profiles`
+│   ├── components/
+│   │   ├── auth/          # AuthScreen, LoginForm, SignupForm, GoogleButton
+│   │   ├── layout/        # TabNav
+│   │   ├── feed/          # posts, likes, comentários
+│   │   ├── messages/      # conversas (grupo) + mensagens
+│   │   ├── jobs/          # vagas + candidaturas
+│   │   └── soap/          # casos SOAP + comentários em casos partilhados
 │   └── lib/
-│       └── api.js        # callDiagnosis() / callJobsReport()
+│       ├── api.js         # callDiagnosis() / callJobsReport() — proxy Anthropic
+│       ├── supabase.js    # cliente Supabase (chave anon, para o browser)
+│       └── db.js          # funções de acesso a dados (Supabase + RLS)
 ├── index.html
 ├── package.json
 ├── vite.config.js
@@ -48,21 +63,16 @@ cd vetconnect
 npm install
 ```
 
-## Passo 2 — Colar o teu componente
+## Passo 2 — UI já implementada
 
-1. Abre o artefacto VetConnect e copia **todo** o código `.jsx`.
-2. Substitui o conteúdo de `src/App.jsx` (abaixo dos imports) pelo teu componente.
-3. Garante que o componente de topo é o **export por defeito**:
-   ```js
-   export default function VetConnect() { /* ... */ }
-   ```
-   Se terminar apenas com `function VetConnect(){...}`, adiciona no fim:
-   ```js
-   export default VetConnect;
-   ```
+`src/App.jsx` já não é um placeholder para colar código: é o shell real da
+app (login/registo + 5 separadores — feed, mensagens, vagas, casos SOAP,
+perfil), ligado ao Supabase via `src/lib/db.js`. Não há nada para colar aqui;
+segue para o Passo 3 para ligar as chaves de API.
 
-`recharts` já está instalado (usado nos gráficos do Perfil), portanto os teus
-`import { ... } from "recharts"` funcionam sem alterações.
+`recharts` está instalado mas não é usado por nenhum componente actual —
+ficou disponível para se um dia se quiser adicionar gráficos (ex.: estatísticas
+no Perfil).
 
 ## Passo 3 — Configurar a chave
 
@@ -73,7 +83,12 @@ cp .env.example .env.local
 Edita `.env.local` e coloca a tua chave real em `ANTHROPIC_API_KEY`.
 **Nunca faças commit deste ficheiro** (já está no `.gitignore`).
 
-## Passo 4 — Ligar o frontend ao backend
+## Passo 4 — Ligar o frontend ao backend (referência)
+
+> Esta secção descreve como ligar `callDiagnosis()`/`callJobsReport()` a um
+> componente de diagnóstico/relatório de vagas — nenhum dos dois existe ainda
+> na UI actual (que cobre auth, feed, mensagens, vagas e casos SOAP, mas não
+> IA). Fica aqui como referência para quando esse componente for adicionado.
 
 No topo do teu componente, adiciona o import:
 
@@ -159,6 +174,40 @@ referência a chaves de API e ao header `anthropic-dangerous-direct-browser-acce
 
 ---
 
+## Passo 4.5 — Configurar Supabase (base de dados + auth)
+
+A app usa [Supabase](https://supabase.com) como base de dados (Postgres) e
+autenticação (email/password + Google OAuth). Ao contrário da chave da
+Anthropic, a chave anon do Supabase **é para ir para o browser** — o controlo
+de acesso é feito por Row Level Security (RLS) no Postgres, não por um proxy
+server-side. Por isso não há `/api/*` para isto; `src/lib/supabase.js` e
+`src/lib/db.js` falam directamente com o Supabase a partir do cliente.
+
+1. Cria um projeto em [supabase.com](https://supabase.com). Em
+   **Settings → API**, copia o **Project URL** e a **anon/public key**.
+2. No **SQL Editor** do Supabase, corre os ficheiros de
+   `supabase/migrations/` **por ordem** (`0001` → `0005`). Criam as tabelas
+   (`profiles`, `posts`, `post_likes`, `post_comments`, `conversations`,
+   `conversation_participants`, `messages`, `jobs`, `job_applications`,
+   `soap_cases`, `soap_case_comments`), as políticas de RLS, e o trigger que
+   cria automaticamente uma linha em `profiles` sempre que alguém cria conta
+   (email/password ou Google).
+3. Em **Authentication → Providers**: confirma que o **Email** está ligado;
+   liga o **Google** (precisa de um Client ID/Secret do
+   [Google Cloud Console](https://console.cloud.google.com) → APIs &
+   Services → Credentials → OAuth 2.0 Client ID, com redirect URI
+   `https://<project-ref>.supabase.co/auth/v1/callback`).
+4. Em **Authentication → URL Configuration**: define o **Site URL** (o teu
+   domínio de produção) e adiciona a `http://localhost:5173/**` e ao teu
+   domínio Vercel na lista de **Redirect URLs**.
+5. Copia `.env.example` para `.env.local` (se ainda não o fizeste) e
+   preenche `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+6. Corre `npm install` para obter `@supabase/supabase-js` (foi adicionado ao
+   `package.json`).
+
+Depois disto, `npm run dev` já mostra o ecrã de login/registo, e criar conta
+cria automaticamente o perfil correspondente.
+
 ## Passo 5 — Correr localmente
 
 A forma mais simples é usar a CLI da Vercel, que corre o frontend **e** as
@@ -190,13 +239,17 @@ Cada `git push` passa a gerar um deploy automático.
 
 ## Notas para escalar (próximos passos)
 
-Este split resolve a **segurança da chave** e prepara o alojamento na Vercel.
-Para milhares de utilizadores com dados reais, os passos seguintes (como já
-discutido) são:
+Este split resolve a **segurança da chave** da Anthropic e prepara o
+alojamento na Vercel; a base de dados + auth (Supabase) resolve a
+persistência de posts/mensagens/vagas/casos SOAP/utilizadores. Para milhares
+de utilizadores com dados reais, os passos seguintes ainda em falta são:
 
-- **Base de dados + Auth** (ex.: Supabase) para posts, mensagens, casos SOAP,
-  vagas e utilizadores reais — hoje ainda vivem em estado/`storage` local.
-- **Storage** para fotos/vídeos dos posts (as `blob:` URLs actuais não persistem).
+- **Storage** para fotos/vídeos dos posts e avatares — `posts.image_url` e
+  `profiles.avatar_url` guardam só uma URL de texto; upload real de ficheiros
+  (Supabase Storage) ainda não está ligado, a UI aceita só um link colado.
+- **Realtime** nas mensagens — hoje é manual (botão "Atualizar" +
+  refresh ao enviar); `supabase.channel()` pode ser adicionado a
+  `MessageThread.jsx` sem reescrever a estrutura.
 - **Rate limiting** nas funções `/api` para controlar custo da API por utilizador.
 
 O backend aqui criado é o ponto de entrada natural para essas funções — basta
