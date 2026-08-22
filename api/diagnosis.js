@@ -1,118 +1,102 @@
-/* ============================================================================
-   api/diagnosis.js — POST /api/diagnosis
-   ----------------------------------------------------------------------------
-   Secure server-side replacement for the old in-browser Anthropic call in the
-   AIDiagnosis section. The prompt lives here (server-side), so the browser only
-   sends the clinical inputs and receives clean, parsed JSON back.
-
-   Request body (all optional except species + at least one clinical sign):
-     {
-       "especie":       "Canídeo",
-       "raca":          "Golden Retriever",
-       "idade":         "6 anos",
-       "sexo":          "Macho",
-       "sinais":        ["vómito", "diarreia", "icterícia"],   // array of strings
-       "sintomasLivres":"prostração desde ontem",              // free text
-       "sangue":        "ALT 320, FA 210",                     // free text / null
-       "urina":         "bilirrubinúria",                      // free text / null
-       "fezes":         "sem alterações"                       // free text / null
-     }
-
-   Response:
-     {
-       "resumo": "…",
-       "diagnosticos": [
-         { "nome","probabilidade","justificacao","testes","tratamento","urgencia" }
-       ]
-     }
-   ============================================================================ */
-
-import { callAnthropic, extractJson, readPostBody } from "./_anthropic.js";
-
+/**
+ * POST /api/diagnosis
+ * Gera diagnóstico diferencial veterinário via Anthropic API
+ * A chave API fica segura no servidor — nunca exposta ao cliente
+ */
 export default async function handler(req, res) {
-  const body = readPostBody(req, res);
-  if (!body) return;
-
-  const {
-    especie = "",
-    raca = "",
-    idade = "",
-    sexo = "",
-    sinais = [],
-    sintomasLivres = "",
-    sangue = "",
-    urina = "",
-    fezes = "",
-    lang = "pt",
-  } = body;
-
-  const signList = [
-    Array.isArray(sinais) ? sinais.filter(Boolean).join(", ") : String(sinais || ""),
-    sintomasLivres,
-  ]
-    .filter(Boolean)
-    .join("; ");
-
-  if (!especie && !signList) {
-    res
-      .status(400)
-      .json({ error: "Faltam dados clínicos: indica pelo menos a espécie e um sinal clínico." });
-    return;
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    return res.status(200).end()
   }
 
-  const system =
-    "És um assistente de diagnóstico diferencial veterinário. Respondes SEMPRE e APENAS com JSON válido, sem texto antes ou depois, sem markdown. " +
-    `Escreve o conteúdo textual na língua com o código ISO "${lang}".`;
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido' })
+  }
 
-  const userPrompt = [
-    "Gera um diagnóstico diferencial veterinário para o seguinte caso.",
-    "",
-    `Espécie: ${especie || "não indicada"}`,
-    `Raça: ${raca || "não indicada"}`,
-    `Idade: ${idade || "não indicada"}`,
-    `Sexo: ${sexo || "não indicado"}`,
-    `Sinais clínicos: ${signList || "não indicados"}`,
-    sangue ? `Análise sanguínea: ${sangue}` : "",
-    urina ? `Análise de urina: ${urina}` : "",
-    fezes ? `Análise de fezes: ${fezes}` : "",
-    "",
-    "Responde com este esquema JSON exacto (máximo 4 diagnósticos, ordenados por probabilidade decrescente):",
-    `{
-  "resumo": "síntese de 1-2 frases do quadro clínico",
-  "diagnosticos": [
-    {
-      "nome": "nome do diagnóstico",
-      "probabilidade": "Alta | Média | Baixa",
-      "justificacao": "porquê, com base nos sinais e análises",
-      "testes": "exames recomendados para confirmar",
-      "tratamento": "tratamento inicial sugerido",
-      "urgencia": "Emergência | Urgente | Não urgente"
-    }
-  ]
-}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    return res.status(500).json({ error: 'API key não configurada no servidor' })
+  }
+
+  const { species, breed, age, sex, symptoms, extra, labText } = req.body
+
+  if (!species || !symptoms) {
+    return res.status(400).json({ error: 'Espécie e sinais clínicos são obrigatórios' })
+  }
+
+  const prompt = [
+    'Veterinário especialista. Responda APENAS com JSON válido, sem markdown, sem texto antes ou depois.',
+    `Caso: Espécie=${species}, Raça=${breed || 'nd'}, Idade=${age || 'nd'}, Sexo=${sex || 'nd'}.`,
+    `Sinais: ${symptoms}.`,
+    extra ? `Anamnese: ${extra}.` : '',
+    labText ? `Labs: ${labText}.` : '',
+    '',
+    'Formato JSON exacto (campos CURTOS, máx 2 frases cada):',
+    '{"resumo":"...","urgencia":"Urgente|Semi-urgente|Eletivo","proximos_passos":"...","diagnosticos":[{"nome":"...","probabilidade":"Alta|Média|Baixa","justificacao":"...","testes":["..."],"tratamento_inicial":"..."}]}',
+    '',
+    'Devolva 4 diagnósticos. Respostas curtas e objectivas. Apenas JSON, nada mais.',
+  ].filter(Boolean).join('\n')
 
   try {
-    const text = await callAnthropic({
-      system,
-      messages: [{ role: "user", content: userPrompt }],
-      maxTokens: 4000,
-    });
-    const json = extractJson(text);
-    if (!Array.isArray(json.diagnosticos)) {
-      res.status(502).json({
-        error:
-          "A resposta do modelo não continha a lista de diagnósticos esperada. Campos recebidos: " +
-          Object.keys(json).join(", "),
-      });
-      return;
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4000,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    })
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      return res.status(response.status).json({
+        error: err?.error?.message || `HTTP ${response.status}`,
+      })
     }
-    res.status(200).json(json);
+
+    const data = await response.json()
+    const rawText = (data.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('') || ''
+
+    if (!rawText.trim()) {
+      return res.status(502).json({ error: 'Resposta vazia da API' })
+    }
+
+    // Extract JSON from response
+    const start = rawText.indexOf('{')
+    const end = rawText.lastIndexOf('}')
+    if (start === -1 || end === -1) {
+      return res.status(502).json({
+        error: 'Resposta não contém JSON',
+        raw: rawText.slice(0, 300),
+      })
+    }
+
+    const parsed = JSON.parse(rawText.slice(start, end + 1))
+
+    if (!parsed.diagnosticos || !Array.isArray(parsed.diagnosticos)) {
+      return res.status(502).json({
+        error: 'JSON sem campo diagnosticos',
+        fields: Object.keys(parsed),
+      })
+    }
+
+    return res.status(200).json(parsed)
   } catch (err) {
-    res
-      .status(err.statusCode || 500)
-      .json({ error: err.message || "Erro ao gerar diagnóstico." });
+    return res.status(500).json({
+      error: err instanceof SyntaxError
+        ? 'Erro ao interpretar JSON da API'
+        : err.message || 'Erro interno',
+    })
   }
 }
