@@ -14,13 +14,15 @@ vetconnect/
 │   └── jobs-report.js          ← POST /api/jobs-report (relatório de vagas)
 ├── src/                        ← Frontend (React + Vite)
 │   ├── main.jsx                ← Entry point
-│   └── App.jsx                 ← App completa (~4000 linhas)
+│   ├── App.jsx                 ← App completa (~4000 linhas)
+│   └── lib/supabase.js         ← Cliente Supabase (autenticação + perfis)
+├── supabase/migrations/        ← SQL da base de dados (correr manualmente no Supabase)
 ├── public/                     ← Ficheiros estáticos
 ├── index.html                  ← HTML template
 ├── package.json
 ├── vite.config.js
 ├── vercel.json                 ← Configuração Vercel
-└── .env.example                ← Variáveis de ambiente (modelo)
+└── env.example                 ← Variáveis de ambiente (modelo)
 ```
 
 ---
@@ -63,8 +65,17 @@ No dashboard do Vercel → **Settings → Environment Variables**:
 | Nome | Valor | Ambiente |
 |------|-------|----------|
 | `ANTHROPIC_API_KEY` | `sk-ant-...` | Production, Preview, Development |
+| `VITE_SUPABASE_URL` | `https://xxxx.supabase.co` | Production, Preview, Development |
+| `VITE_SUPABASE_ANON_KEY` | `eyJ...` | Production, Preview, Development |
 
-⚠️ **NUNCA** coloque a API key no código ou no repositório Git.
+⚠️ **NUNCA** coloque a API key da Anthropic no código ou no repositório Git. A `VITE_SUPABASE_ANON_KEY` é segura para expor no browser — o acesso aos dados é controlado por Row Level Security no Postgres, não pela chave.
+
+### 3.1 Configurar a base de dados (Supabase)
+
+1. Cria um projecto em [supabase.com](https://supabase.com) (gratuito).
+2. Copia o **Project URL** e a **anon public key** de Settings → API para as variáveis acima.
+3. Abre o SQL Editor do Supabase e corre o conteúdo de `supabase/migrations/0001_profiles.sql` — isto cria a tabela `profiles`, as políticas RLS e o trigger que cria automaticamente um perfil para cada novo utilizador.
+4. (Opcional) Para permitir "Entrar com Google", activa o provider em Authentication → Providers.
 
 ### 4. Re-deploy
 
@@ -79,8 +90,8 @@ Após adicionar a variável de ambiente, clique em **Redeploy** no Vercel.
 npm install
 
 # Criar ficheiro de ambiente local
-cp .env.example .env.local
-# Editar .env.local e preencher ANTHROPIC_API_KEY
+cp env.example .env.local
+# Editar .env.local e preencher ANTHROPIC_API_KEY, VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY
 
 # Iniciar servidor de desenvolvimento (frontend + backend)
 vercel dev
@@ -135,8 +146,8 @@ O certificado SSL é gerado automaticamente.
 
 ## Próximos passos para produção
 
-1. **Base de dados real** — substituir dados mock por Supabase/PlanetScale
-2. **Autenticação** — integrar Supabase Auth ou Clerk
+1. **Base de dados real** — ✅ autenticação e perfis já usam Supabase; posts, mensagens, vagas e casos SOAP continuam em dados mock no browser e ainda precisam de tabelas próprias
+2. **Autenticação** — ✅ Supabase Auth (email/password + Google)
 3. **Storage** — fotos e vídeos em Supabase Storage ou Cloudflare R2
 4. **Rate limiting** — proteger `/api/diagnosis` contra abuso (ex: Upstash)
 5. **Analytics** — Vercel Analytics (incluído) ou Plausible

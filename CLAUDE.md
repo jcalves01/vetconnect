@@ -11,11 +11,14 @@ index.html          — mounts #root, loads /src/main.jsx
 src/
   main.jsx          — ReactDOM root, renders <App/>
   App.jsx           — the entire app: theming, i18n, mock data, every screen/tab
+  lib/
+    supabase.js     — Supabase client singleton (anon key, safe for the browser)
 api/
   diagnosis.js      — POST /api/diagnosis, direct fetch to api.anthropic.com
   jobs-report.js    — POST /api/jobs-report, same pattern
+supabase/migrations/0001_profiles.sql — profiles table + RLS + auto-provisioning trigger
 package.json / vite.config.js / vercel.json — standard Vite + Vercel-functions setup
-env.example         — ANTHROPIC_API_KEY (+ optional ALLOWED_ORIGIN)
+env.example         — ANTHROPIC_API_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 ```
 
 `npm install && npm run build` succeeds. `vite.config.js` has no dev-time proxy for `/api/*`, so `npm run dev` alone won't reach the AI endpoints locally — use `vercel dev` (serves frontend + functions together) when working on `AIDiagnosis` or the jobs-report generator.
@@ -29,10 +32,24 @@ Everything lives in one file, all styled with inline style objects (no CSS files
 - **Design tokens**: `LIGHT` / `DARK` color objects and style-object factories (`card()`, `btn()`, `inp()`, `tag()`, `ava()`) that every component calls with the active theme (`C`) — this is the app's only "design system."
 - **i18n**: `LANGS` (available languages) + `TR` (translation dict) + `getTR(lang, key)`; components read via `useLang()`/`t(key)` from `LangCtx`. Falls back to Portuguese (`TR.pt`) for missing keys.
 - **Persistence**: `usePersistentState(key, initial)` wraps `window.storage.get/set` (the Claude.ai artifact sandbox API) instead of `localStorage` — this will not work in a normal browser/Vercel deploy without being swapped out first.
-- **Mock data block** (`// ── Mock Data ──`): `USERS`, `POSTS`, `JOBS`, `SUPPLIERS`, `CASES_SOAP`, `DRUGS`, `PROTOCOLS`, `EXPERTS_MAP`, `SYMPTOMS`, lab-panel field defs (`BLOOD_P`/`URINE_P`/`FECES_P`), etc. — there is no real backend or database; all list/detail views render from these constants.
-- **Top-level tab components**, wired up in `TABS` inside `export default function VetConnect()`: `Home`, `Community`, `Learn`, `Market` (with `SupplierDetail`), `Clinic` (hosting `AIDiagnosis`, `ClinicalCalc`, `DrugDB`, `Protocols`, `SOAPCases`, `ExpertMap`), `Profile`, plus an inline `Settings`. Navigation is `useState` tab-switching (`mainTab`), not a router.
+- **Mock data block** (`// ── Mock Data ──`): `USERS`, `POSTS`, `JOBS`, `SUPPLIERS`, `CASES_SOAP`, `DRUGS`, `PROTOCOLS`, `EXPERTS_MAP`, `SYMPTOMS`, lab-panel field defs (`BLOOD_P`/`URINE_P`/`FECES_P`), etc. — still all client-side constants. **Auth and the current user's profile are real** (Supabase), but posts/jobs/messages/SOAP-case *content* still renders from these mock constants — see "Auth & database" below for the exact boundary.
+- **Top-level tab components**, wired up in `TABS` inside `export default function VetConnect()`: `Home`, `Community`, `Learn`, `Market` (with `SupplierDetail`), `Clinic` (hosting `AIDiagnosis`, `ClinicalCalc`, `DrugDB`, `Protocols`, `SOAPCases`, `ExpertMap`), `Profile`, plus an inline `Settings`. Navigation is `useState` tab-switching (`mainTab`), not a router. `ActiveComp` is rendered with a `me` prop (see below) in addition to `C`/`t`/`isMobile`/`setMainTab`.
 - **AI features call two backend routes**: `AIDiagnosis` POSTs to `/api/diagnosis` with `{species, breed, age, sex, symptoms, extra, labText}` and expects back `{resumo, urgencia, proximos_passos, diagnosticos:[{nome, probabilidade, justificacao, testes, tratamento_inicial}]}`; the jobs-report generator in `Market` POSTs to `/api/jobs-report` with `{criteria, jobCount, jobList}` and expects `{report}`. `api/diagnosis.js`/`api/jobs-report.js` implement these directly against `https://api.anthropic.com/v1/messages` with `ANTHROPIC_API_KEY`, no shared helper module (unlike the old `api/_anthropic.js`) — each file inlines its own prompt building, fetch call, and `{`...`}`-slice JSON extraction from the model's text response.
 - **Notification engine**: `VetConnect()` simulates incoming notifications/live-event reminders via `setTimeout` and a `pushNotif()` helper that also fires the browser Notification API — purely client-side demo behavior, not driven by any real event source.
+
+## Auth & database (Supabase)
+
+Real authentication and a real `profiles` table were added on top of the single-file artifact — this is the one part of the app backed by an actual database; everything else in "Mock data block" above is still client-side only.
+
+- **`src/lib/supabase.js`** — the only client instance, built from `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`. Logs an error (doesn't throw) if those env vars are missing.
+- **`supabase/migrations/0001_profiles.sql`** — `profiles` table (`full_name`, `specialty`, `country`, `license`, `interests text[]`, `bio`, `avatar_url`), RLS (`select` for any authenticated user, `insert`/`update` only your own row), and a `handle_new_user()` trigger on `auth.users` that auto-creates the profile row from `raw_user_meta_data` on signup — this SQL has to be run manually in the Supabase SQL editor (or via the CLI), it is not applied automatically.
+- **`VetConnect()`** owns all auth state: `session` (via `supabase.auth.getSession()` + `onAuthStateChange`), `profile` (fetched from `profiles` by `session.user.id`, refetchable via `refreshProfile`), and a derived **`me`** object shaped exactly like a `USERS[]` entry (`id`, `name`, `spec`, `avatar` (initials), `country`, `license`, `bio`, `interests`) so existing code that expected `USERS[0]` as "the current user" only needed its reference swapped, not restructured. `me` is passed down as a prop to `Home`, `Clinic`→`SOAPCases`, and `Profile`; the top bar avatar and sidebar footer read it directly since those are defined inside `VetConnect()`'s own closure.
+- **`onboarded` = `!!session`**, **`onboardLoaded` = `session !== undefined`** — same two variable names the old `usePersistentState("vc_onboarded", …)` gate used, so the splash-screen/login-vs-app branching logic further down didn't need to change, only what feeds those two booleans.
+- **`LoginScreen`** calls `supabase.auth.signInWithPassword` / `signInWithOAuth({provider:"google"})` / `resetPasswordForEmail`. Google sign-in only works once the provider is enabled in the Supabase dashboard (Authentication → Providers) — until then it fails gracefully with the returned error message.
+- **`Onboarding`** now collects name/email/password *and* specialty/country/license/interests in one wizard, then calls `supabase.auth.signUp({ email, password, options: { data: {...} } })` on finish — that metadata is what `handle_new_user()` reads to populate the new profile row. If the Supabase project requires email confirmation, `data.session` comes back empty and Onboarding shows a "check your email" screen instead of proceeding.
+- **`Profile`** reads/writes the real row (`supabase.from("profiles").update(...)`) instead of local-only state; it shows a skeleton until `profileLoaded` (`!!profile`) is true. Its "posts"/"cases" sub-tabs still render from the mock `POSTS`/`CASES_SOAP` constants (filtered by the mock `USERS[0].id === 1`, unrelated to the real logged-in user) — that's demo content, not yours.
+- **Settings → Sessão → "Terminar Sessão"** calls `supabase.auth.signOut()`.
+- **Not yet DB-backed**: posts/comments/likes (`Home`), messages/groups/meetings (`Community`), jobs (`Market`), SOAP cases (`SOAPCases`) still live in local component state / `usePersistentState`, seeded from the mock constants — only *authorship* of new posts/comments/cases uses the real `me` identity, the content itself isn't persisted server-side or shared between users. Wiring any of these to real tables is a separate, larger piece of work (each needs its own migration + RLS policies, following the `profiles` table as the template).
 
 ## Previous architecture (in git history, `HEAD`)
 

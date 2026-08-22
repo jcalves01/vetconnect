@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, createContext, useRef } from "react";
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+import { supabase } from "./lib/supabase.js";
 
 // ── Build metadata ─────────────────────────────────────────────────────────────
 const APP_VERSION = "1.0.0-beta.1";
@@ -335,13 +336,7 @@ const LEARN_ADS = [
 // ══════════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN — entrada directa para utilizadores registados
 // ══════════════════════════════════════════════════════════════════════════════
-const DEMO_USERS = [
-  { email:"ana@vetconnect.pt", password:"vet2024", name:"Dra. Ana Ferreira", avatar:"AF", spec:"Medicina Interna" },
-  { email:"rui@vetconnect.pt",  password:"vet2024", name:"Dr. Rui Santos",    avatar:"RS", spec:"Cirurgia" },
-  { email:"demo@vetconnect.pt", password:"demo",    name:"Demo Veterinário",  avatar:"DV", spec:"Medicina Geral" },
-];
-
-function LoginScreen({ onDone, onRegister, C, t, dark, setDark, lang, setLang }) {
+function LoginScreen({ onRegister, C, t, dark, setDark, lang, setLang }) {
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [showPw,   setShowPw]   = useState(false);
@@ -350,23 +345,30 @@ function LoginScreen({ onDone, onRegister, C, t, dark, setDark, lang, setLang })
   const [forgotSent, setForgotSent] = useState(false);
   const currentLang = LANGS.find(l=>l.code===lang)||LANGS[0];
 
-  const login = () => {
+  const login = async () => {
     setError("");
     if(!email.trim()||!password.trim()){ setError("Por favor preencha o email e a password."); return; }
     setLoading(true);
-    setTimeout(()=>{
-      const found = DEMO_USERS.find(u=>u.email.toLowerCase()===email.trim().toLowerCase()&&u.password===password);
-      setLoading(false);
-      if(found){ onDone(); }
-      else { setError("Email ou password incorrectos. Tente: demo@vetconnect.pt / demo"); }
-    }, 900);
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setLoading(false);
+    if(err) setError(err.message === "Invalid login credentials" ? "Email ou password incorrectos." : err.message);
+    // On success, the onAuthStateChange listener in VetConnect() picks up the new session.
+  };
+
+  const loginWithGoogle = async () => {
+    setError("");
+    const { error: err } = await supabase.auth.signInWithOAuth({ provider: "google" });
+    if(err) setError(err.message);
   };
 
   const handleKey = e => { if(e.key==="Enter") login(); };
 
-  const forgotPassword = () => {
+  const forgotPassword = async () => {
     if(!email.trim()){ setError("Introduza o seu email para recuperar a password."); return; }
-    setForgotSent(true); setError("");
+    setError("");
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim());
+    if(err) setError(err.message);
+    else setForgotSent(true);
   };
 
   return (
@@ -464,24 +466,17 @@ function LoginScreen({ onDone, onRegister, C, t, dark, setDark, lang, setLang })
                 <div style={{flex:1,height:1,background:C.border}}/>
               </div>
 
-              {/* Social logins */}
+              {/* Social login */}
               <div style={{display:"flex",gap:10,marginBottom:24}}>
-                {[{label:"Google",icon:"🔵",color:"#4285F4"},{label:"ORCID",icon:"🟢",color:"#A6CE39"},{label:"LinkedIn",icon:"🔗",color:"#0077B5"}].map(s=>(
-                  <button key={s.label} onClick={onDone}
-                    style={{flex:1,background:C.bg,border:`1.5px solid ${C.border}`,borderRadius:9,padding:"9px 8px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:12,color:C.text,fontWeight:600,transition:"border .15s"}}
-                    onMouseEnter={e=>e.currentTarget.style.borderColor=s.color}
-                    onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
-                    <span>{s.icon}</span>{s.label}
-                  </button>
-                ))}
+                <button onClick={loginWithGoogle}
+                  style={{flex:1,background:C.bg,border:`1.5px solid ${C.border}`,borderRadius:9,padding:"9px 8px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:12,color:C.text,fontWeight:600,transition:"border .15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor="#4285F4"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                  <span>🔵</span>Google
+                </button>
               </div>
             </>
           )}
-
-          {/* Demo hint */}
-          <div style={{background:C.amber+"18",border:`1px solid ${C.amber}40`,borderRadius:8,padding:"10px 14px",marginBottom:20,fontSize:11,color:C.sub,lineHeight:1.6}}>
-            <span style={{fontWeight:700,color:C.amber}}>🔑 Demo:</span> Use <span style={{fontWeight:700,color:C.text}}>demo@vetconnect.pt</span> / <span style={{fontWeight:700,color:C.text}}>demo</span> para explorar sem conta
-          </div>
 
           {/* Register link */}
           <div style={{textAlign:"center",borderTop:`1px solid ${C.border}`,paddingTop:18}}>
@@ -499,12 +494,42 @@ function LoginScreen({ onDone, onRegister, C, t, dark, setDark, lang, setLang })
   );
 }
 
-function Onboarding({ onDone, onBack, C, t }) {
+function Onboarding({ onBack, C, t }) {
   const [step, setStep] = useState(0);
+  const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
   const [spec, setSpec] = useState(""); const [country, setCountry] = useState(""); const [license, setLicense] = useState("");
   const [interests, setInterests] = useState([]); const [followed, setFollowed] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [signedUp, setSignedUp] = useState(false);
   const toggleInt = s => setInterests(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
   const toggleFollow = id => setFollowed(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+
+  const finishSignup = async () => {
+    setError("");
+    setLoading(true);
+    const { data, error: err } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { full_name: name.trim(), specialty: spec, country, license, interests } },
+    });
+    setLoading(false);
+    if(err) { setError(err.message); return; }
+    // If email confirmation is required, Supabase returns a user but no session yet.
+    if(!data.session) setSignedUp(true);
+    // Otherwise onAuthStateChange in VetConnect() picks up the new session automatically.
+  };
+
+  if(signedUp) return (
+    <div style={{position:"fixed",inset:0,background:C.bg,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{width:"100%",maxWidth:420,background:C.surface,borderRadius:20,boxShadow:"0 8px 40px rgba(0,0,0,0.18)",padding:"36px 28px",textAlign:"center"}}>
+        <div style={{fontSize:44,marginBottom:14}}>📧</div>
+        <div style={{fontWeight:800,fontSize:18,color:C.text,marginBottom:8}}>Confirme o seu email</div>
+        <div style={{fontSize:13,color:C.sub,lineHeight:1.6,marginBottom:20}}>Enviámos um link de confirmação para <strong>{email}</strong>. Abra-o para activar a sua conta e iniciar sessão.</div>
+        <button onClick={onBack} style={{...btn(C,"primary")}}>← Voltar ao login</button>
+      </div>
+    </div>
+  );
 
   const steps = [
     <div key={0} style={{textAlign:"center",padding:"40px 24px"}}>
@@ -525,8 +550,14 @@ function Onboarding({ onDone, onBack, C, t }) {
 
     <div key={1} style={{padding:"28px 24px"}}>
       <div style={{fontWeight:800,fontSize:20,color:C.text,marginBottom:4}}>👤 Perfil profissional</div>
-      <div style={{color:C.sub,fontSize:12,marginBottom:22}}>Passo 1 de 3 — Identidade</div>
+      <div style={{color:C.sub,fontSize:12,marginBottom:22}}>Passo 1 de 3 — Conta e identidade</div>
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>NOME COMPLETO</label>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="ex: Dra. Ana Ferreira" style={inp(C)}/></div>
+        <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>EMAIL PROFISSIONAL</label>
+          <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="exemplo@clinica.pt" autoComplete="email" style={inp(C)}/></div>
+        <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>PASSWORD</label>
+          <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="mínimo 6 caracteres" autoComplete="new-password" style={inp(C)}/></div>
         <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>{t("onb_spec").toUpperCase()}</label>
           <select value={spec} onChange={e=>setSpec(e.target.value)} style={inp(C)}><option value="">Seleccionar…</option>{SPECIALTIES.map(s=><option key={s}>{s}</option>)}</select></div>
         <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>{t("onb_country").toUpperCase()}</label>
@@ -540,7 +571,7 @@ function Onboarding({ onDone, onBack, C, t }) {
       </div>
       <div style={{display:"flex",gap:10,marginTop:22}}>
         <button onClick={()=>setStep(0)} style={{...btn(C,"outline"),flex:1}}>← Voltar</button>
-        <button onClick={()=>setStep(2)} disabled={!spec||!country} style={{...btn(C,"primary"),flex:1,opacity:(!spec||!country)?0.5:1}}>Continuar →</button>
+        <button onClick={()=>setStep(2)} disabled={!name.trim()||!email.trim()||password.length<6||!spec||!country} style={{...btn(C,"primary"),flex:1,opacity:(!name.trim()||!email.trim()||password.length<6||!spec||!country)?0.5:1}}>Continuar →</button>
       </div>
     </div>,
 
@@ -573,9 +604,12 @@ function Onboarding({ onDone, onBack, C, t }) {
           </div>
         ))}
       </div>
+      {error&&(
+        <div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:C.rose}}>⚠️ {error}</div>
+      )}
       <div style={{display:"flex",gap:10}}>
         <button onClick={()=>setStep(2)} style={{...btn(C,"outline"),flex:1}}>← Voltar</button>
-        <button onClick={onDone} style={{...btn(C,"primary"),flex:1}}>🎉 {t("onb_finish")}</button>
+        <button onClick={finishSignup} disabled={loading} style={{...btn(C,"primary"),flex:1,opacity:loading?0.75:1}}>{loading?"A criar conta…":`🎉 ${t("onb_finish")}`}</button>
       </div>
     </div>
   ];
@@ -818,7 +852,7 @@ function VideoAdCard({ ad, C, compact=false }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // HOME FEED
 // ══════════════════════════════════════════════════════════════════════════════
-function Home({ C, t, isMobile, setMainTab }) {
+function Home({ C, t, isMobile, setMainTab, me }) {
   const [text, setText] = useState("");
   const [posts, setPosts] = usePersistentState("vc_posts", POSTS);
   const [liked, setLiked] = usePersistentState("vc_liked", []);
@@ -835,7 +869,7 @@ function Home({ C, t, isMobile, setMainTab }) {
     const hasSoap = soapData.title&&(soapData.S||soapData.O||soapData.A||soapData.P);
     const newPost = {
       id: Date.now(),
-      user: USERS[0],
+      user: me,
       time: "agora",
       type: hasSoap?"clinical":"post",
       content: text||(hasSoap?`**${soapData.title}**${soapData.meta?" — "+soapData.meta:""}`:postAttachments.map(a=>a.name).join(", ")),
@@ -864,7 +898,7 @@ function Home({ C, t, isMobile, setMainTab }) {
   const submitComment = (postId) => {
     const text = (commentInputs[postId]||"").trim();
     if(!text) return;
-    setPostComments(prev=>({...prev,[postId]:[...(prev[postId]||[]),{id:Date.now(),user:USERS[0],text,time:"agora"}]}));
+    setPostComments(prev=>({...prev,[postId]:[...(prev[postId]||[]),{id:Date.now(),user:me,text,time:"agora"}]}));
     setCommentInputs(prev=>({...prev,[postId]:""}));
     setPosts(prev=>prev.map(p=>p.id===postId?{...p,comments:p.comments+1}:p));
   };
@@ -897,7 +931,7 @@ function Home({ C, t, isMobile, setMainTab }) {
           </div>
         )}
         <div style={{display:"flex",gap:10,marginBottom:10}}>
-          <div style={ava(C,isMobile?36:42,true)}>AF</div>
+          <div style={ava(C,isMobile?36:42,true)}>{me.avatar}</div>
           <textarea value={text} onChange={e=>setText(e.target.value)} placeholder={t("write_post")}
             style={{...inp(C),resize:"none",height:isMobile?60:76,flex:1,fontSize:isMobile?13:14}}/>
         </div>
@@ -1062,7 +1096,7 @@ function Home({ C, t, isMobile, setMainTab }) {
                 </div>
                 {/* New comment input */}
                 <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                  <div style={ava(C,32,true)}>AF</div>
+                  <div style={ava(C,32,true)}>{me.avatar}</div>
                   <div style={{flex:1}}>
                     <textarea
                       value={commentInputs[p.id]||""}
@@ -3146,7 +3180,7 @@ function Protocols({ C, t, isMobile }) {
   );
 }
 
-function SOAPCases({ C, t, isMobile }) {
+function SOAPCases({ C, t, isMobile, me }) {
   const [sel,setSel]=useState(null);
   const [caseComments, setCaseComments] = useState({});
   const [caseInputs, setCaseInputs] = useState({});
@@ -3158,7 +3192,7 @@ function SOAPCases({ C, t, isMobile }) {
   const submitCaseComment = (caseId) => {
     const text = (caseInputs[caseId]||"").trim();
     if(!text) return;
-    setCaseComments(prev=>({...prev,[caseId]:[...(prev[caseId]||[]),{id:Date.now(),user:USERS[0],text,time:"agora"}]}));
+    setCaseComments(prev=>({...prev,[caseId]:[...(prev[caseId]||[]),{id:Date.now(),user:me,text,time:"agora"}]}));
     setCaseInputs(prev=>({...prev,[caseId]:""}));
     setCases(prev=>prev.map(c=>c.id===caseId?{...c,replies:c.replies+1}:c));
   };
@@ -3190,7 +3224,7 @@ function SOAPCases({ C, t, isMobile }) {
             </div>
           ))}
           <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-            <div style={ava(C,30,true)}>AF</div>
+            <div style={ava(C,30,true)}>{me.avatar}</div>
             <div style={{flex:1}}>
               <textarea value={caseInputs[sel.id]||""} onChange={e=>setCaseInputs(p=>({...p,[sel.id]:e.target.value}))}
                 onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submitCaseComment(sel.id);}}}
@@ -3232,7 +3266,7 @@ function SOAPCases({ C, t, isMobile }) {
               const meta = newCase.meta;
               const parts = meta.split("·").map(s=>s.trim());
               setCases(prev=>[{
-                id:Date.now(), user:USERS[0], title:newCase.title,
+                id:Date.now(), user:me, title:newCase.title,
                 species:parts[0]||"nd", breed:parts[1]||"",
                 age:parts[2]||"nd", sex:parts[3]||"nd",
                 date:"agora", status:"Em discussão", replies:0,
@@ -3311,7 +3345,7 @@ function ExpertMap({ C, t, isMobile }) {
   );
 }
 
-function Clinic({ C, t, isMobile }) {
+function Clinic({ C, t, isMobile, me }) {
   const [sub,setSub]=useState("ai");
   const SUBS=[{id:"ai",label:"🧠 "+t("clinic_ai")},{id:"calc",label:"🧮 Calc."},{id:"drugs",label:"💊 "+t("clinic_drugs")},{id:"protocols",label:"📋 "+t("clinic_protocols")},{id:"cases",label:"🔬 "+t("profile_cases")},{id:"map",label:"🗺️ "+t("clinic_map")}];
   return (
@@ -3323,7 +3357,7 @@ function Clinic({ C, t, isMobile }) {
       {sub==="calc"&&<ClinicalCalc C={C} t={t} isMobile={isMobile}/>}
       {sub==="drugs"&&<DrugDB C={C} t={t} isMobile={isMobile}/>}
       {sub==="protocols"&&<Protocols C={C} t={t} isMobile={isMobile}/>}
-      {sub==="cases"&&<SOAPCases C={C} t={t} isMobile={isMobile}/>}
+      {sub==="cases"&&<SOAPCases C={C} t={t} isMobile={isMobile} me={me}/>}
       {sub==="map"&&<ExpertMap C={C} t={t} isMobile={isMobile}/>}
     </div>
   );
@@ -3331,15 +3365,37 @@ function Clinic({ C, t, isMobile }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // PROFILE
 // ══════════════════════════════════════════════════════════════════════════════
-function Profile({ C, t, isMobile }) {
-  const u=USERS[0];
+function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
+  const u=me;
   const [sub,setSub]=useState("posts");
   const [editOpen, setEditOpen] = useState(false);
   const [profileName, setProfileName] = useState(u.name);
   const [profileSpec, setProfileSpec] = useState(u.spec);
-  const [profileBio, setProfileBio] = useState("Médica Veterinária especialista em Medicina Interna. Apaixonada por endocrinologia e doenças metabólicas. Professora na Universidade de Lisboa.");
+  const [profileBio, setProfileBio] = useState(u.bio);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [profFb, triggerProfFb] = useFeedback();
+
+  useEffect(() => {
+    setProfileName(u.name); setProfileSpec(u.spec); setProfileBio(u.bio);
+  }, [u.name, u.spec, u.bio]);
+
+  const saveProfile = async () => {
+    setSaving(true); setSaveError("");
+    const { error: err } = await supabase.from("profiles").update({
+      full_name: profileName.trim(),
+      specialty: profileSpec,
+      bio: profileBio,
+    }).eq("id", u.id);
+    setSaving(false);
+    if(err){ setSaveError(err.message); return; }
+    setEditOpen(false);
+    triggerProfFb("saved");
+    onProfileSaved?.();
+  };
+
   const SUBS=[{id:"posts",label:"📝 "+t("profile_posts")},{id:"cases",label:"🔬 "+t("profile_cases")},{id:"certs",label:"🎓 "+t("profile_certs")},{id:"stats",label:"📊 "+t("profile_stats")}];
+  if(!profileLoaded) return <SkeletonFeed C={C}/>;
   return (
     <div style={{maxWidth:isMobile?"100%":760,margin:"0 auto"}}>
       {editOpen&&(
@@ -3358,9 +3414,10 @@ function Profile({ C, t, isMobile }) {
                 </select></div>
               <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>{t("bio").toUpperCase()}</label>
                 <textarea value={profileBio} onChange={e=>setProfileBio(e.target.value)} rows={3} style={{...inp(C),fontSize:13,resize:"vertical"}}/></div>
+              {saveError&&<div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.rose}}>⚠️ {saveError}</div>}
               <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
                 <button onClick={()=>setEditOpen(false)} style={btn(C,"outline",true)}>Cancelar</button>
-                <button onClick={()=>{setEditOpen(false);triggerProfFb("saved");}} style={btn(C,"primary",true)}>💾 Guardar alterações</button>
+                <button onClick={saveProfile} disabled={saving} style={{...btn(C,"primary",true),opacity:saving?0.75:1}}>{saving?"A guardar…":"💾 Guardar alterações"}</button>
               </div>
             </div>
           </div>
@@ -3370,28 +3427,18 @@ function Profile({ C, t, isMobile }) {
         <div style={{height:isMobile?90:130,background:`linear-gradient(135deg,${C.teal},${C.tealL},${C.purple})`}}/>
         <div style={{padding:isMobile?14:20}}>
           <div style={{display:"flex",alignItems:"flex-end",gap:12,marginTop:isMobile?-32:-42,marginBottom:14,flexWrap:isMobile?"wrap":"nowrap"}}>
-            <div style={{...ava(C,isMobile?64:82),fontSize:isMobile?22:28,border:`4px solid ${C.surface}`,boxShadow:"0 4px 16px rgba(0,0,0,0.12)"}}>AF</div>
+            <div style={{...ava(C,isMobile?64:82),fontSize:isMobile?22:28,border:`4px solid ${C.surface}`,boxShadow:"0 4px 16px rgba(0,0,0,0.12)"}}>{u.avatar}</div>
             <div style={{flex:1}}>
               <div style={{fontWeight:800,fontSize:isMobile?16:20,color:C.text,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                {u.name}<span style={{fontSize:16}}>✅</span>
-                <span style={{fontSize:10,background:C.emerald+"20",color:C.emerald,borderRadius:6,padding:"2px 8px",fontWeight:700}}>🔒 Verificado OMV</span>
+                {u.name}
               </div>
-              <div style={{color:C.sub,fontSize:12,marginBottom:4}}>{u.spec} · {u.country} · {u.license}</div>
-              <div style={{display:"flex",alignItems:"center",gap:4}}>
-                {[1,2,3,4,5].map(i=><Icon key={i} d={ic.star} size={12} color={i<=Math.round(u.rep)?C.gold:C.border}/>)}
-                <span style={{fontSize:11,color:C.sub,marginLeft:4}}>{u.rep} reputação clínica</span>
-              </div>
+              <div style={{color:C.sub,fontSize:12,marginBottom:4}}>{u.spec}{u.country?" · "+u.country:""}{u.license?" · "+u.license:""}</div>
             </div>
             <button onClick={()=>setEditOpen(true)} style={{...btn(C,"primary",isMobile),background:profFb==="saved"?C.emerald:C.teal}}>
               {profFb==="saved"?t("saved_ok"):t("edit_profile")}
             </button>
           </div>
-          <div style={{display:"flex",gap:isMobile?14:24,marginBottom:14,flexWrap:"wrap"}}>
-            {[["892","Seguidores"],["341","A seguir"],["47","Posts"],["12","Certificações"],["4.8","⭐ Rep."]].map(([n,l])=>(
-              <div key={l} style={{textAlign:"center"}}><div style={{fontWeight:800,fontSize:isMobile?16:18,color:C.text}}>{n}</div><div style={{color:C.sub,fontSize:11}}>{l}</div></div>
-            ))}
-          </div>
-          <div style={{fontSize:13,color:C.sub,lineHeight:1.6,marginBottom:12}}>{profileBio}</div>
+          {profileBio&&<div style={{fontSize:13,color:C.sub,lineHeight:1.6,marginBottom:12}}>{profileBio}</div>}
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {u.interests.map(i=><span key={i} style={tag(C.teal)}>{i}</span>)}
           </div>
@@ -3516,8 +3563,48 @@ function Profile({ C, t, isMobile }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════════
+const initialsOf = (name) => (name||"").trim().split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("").toUpperCase() || "?";
+
 export default function VetConnect() {
-  const [onboarded,setOnboarded,onboardLoaded]=usePersistentState("vc_onboarded",false);
+  // ── Auth (Supabase) ──────────────────────────────────────────────────────
+  const [session, setSession] = useState(undefined); // undefined = ainda a carregar, null = sem sessão
+  const [profile, setProfile] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const refreshProfile = async (userId) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    setProfile(data || null);
+  };
+
+  useEffect(() => {
+    if (session?.user?.id) refreshProfile(session.user.id);
+    else setProfile(null);
+  }, [session?.user?.id]);
+
+  const signOut = () => supabase.auth.signOut();
+
+  // "me" — objecto no mesmo formato de USERS[n], derivado do perfil real
+  const me = {
+    id: session?.user?.id || null,
+    name: profile?.full_name || session?.user?.email || "Utilizador",
+    spec: profile?.specialty || "Sem especialidade definida",
+    avatar: initialsOf(profile?.full_name || session?.user?.email),
+    country: profile?.country || "",
+    license: profile?.license || "",
+    bio: profile?.bio || "",
+    online: true,
+    verified: false,
+    rep: 0,
+    interests: profile?.interests || [],
+  };
+
+  const onboarded = !!session;
+  const onboardLoaded = session !== undefined;
   const [mainTab,setMainTab]=useState("home");
   const [dark,setDark]=usePersistentState("vc_dark",false);
   const [lang,setLang]=usePersistentState("vc_lang","pt");
@@ -3626,10 +3713,11 @@ export default function VetConnect() {
     <div style={{maxWidth:isMobile?"100%":600,margin:"0 auto"}}>
       <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text,marginBottom:18}}>⚙️ {t("settings")}</div>
       {[
-        {section:"Conta", items:[{label:t("edit_profile"),icon:"👤",sub:"Nome, especialidade, foto"},{label:"Verificação de Identidade",icon:"🔒",sub:"OMV / CRMV número de cédula"},{label:"Alterar Password",icon:"🔑",sub:"Segurança da conta"}]},
+        {section:"Conta", items:[{label:t("edit_profile"),icon:"👤",sub:"Nome, especialidade, foto",action:()=>changeTab("profile")},{label:"Verificação de Identidade",icon:"🔒",sub:"OMV / CRMV número de cédula"},{label:"Alterar Password",icon:"🔑",sub:"Segurança da conta",action:()=>supabase.auth.resetPasswordForEmail(session.user.email)}]},
         {section:"Aparência", items:[{label:"Modo Escuro",icon:dark?"🌙":"☀️",sub:dark?"Activo":"Inactivo",action:()=>setDark(d=>!d),toggle:true,value:dark},{label:"Idioma",icon:currentLang.flag,sub:currentLang.label,action:()=>setLangOpen(true)}]},
         {section:"Notificações", items:[{label:"Notificações Push",icon:"🔔",sub:"Novas mensagens, likes e comentários"},{label:"Emails",icon:"📧",sub:"Resumo semanal e alertas"},{label:"Lives e Eventos",icon:"📡",sub:"Avisos de transmissões ao vivo"}]},
         {section:"Privacidade", items:[{label:"Visibilidade do Perfil",icon:"👁",sub:"Público · Apenas colegas"},{label:"Dados Pessoais",icon:"🛡️",sub:"RGPD — exportar ou eliminar dados"},{label:"Sessões Activas",icon:"📱",sub:"Gerir dispositivos ligados"}]},
+        {section:"Sessão", items:[{label:"Terminar Sessão",icon:"🚪",sub:session?.user?.email||"",action:signOut}]},
       ].map(({section,items})=>(
         <div key={section} style={{marginBottom:20}}>
           <div style={{fontSize:11,fontWeight:700,color:C.sub,letterSpacing:1,textTransform:"uppercase",marginBottom:8,paddingLeft:4}}>{section}</div>
@@ -3698,8 +3786,8 @@ export default function VetConnect() {
     <DarkCtx.Provider value={{dark,toggle:()=>setDark(d=>!d)}}>
       <LangCtx.Provider value={{lang,t}}>
         {authMode==="register"
-          ? <Onboarding onDone={()=>setOnboarded(true)} onBack={()=>setAuthMode("login")} C={C} t={t}/>
-          : <LoginScreen onDone={()=>setOnboarded(true)} onRegister={()=>setAuthMode("register")} C={C} t={t} dark={dark} setDark={setDark} lang={lang} setLang={setLang}/>
+          ? <Onboarding onBack={()=>setAuthMode("login")} C={C} t={t}/>
+          : <LoginScreen onRegister={()=>setAuthMode("register")} C={C} t={t} dark={dark} setDark={setDark} lang={lang} setLang={setLang}/>
         }
       </LangCtx.Provider>
     </DarkCtx.Provider>
@@ -3743,11 +3831,11 @@ export default function VetConnect() {
           </div>
         ))}
       </nav>
-      <div style={{padding:14,borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",gap:9}}>
-        <div style={ava(C,34,true)}>AF</div>
+      <div style={{padding:14,borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",gap:9,cursor:"pointer"}} onClick={()=>{changeTab("profile");if(isMobile||isTablet)setSidebarOpen(false);}} role="button" aria-label="Perfil">
+        <div style={ava(C,34,true)}>{me.avatar}</div>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{color:"#fff",fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Dra. Ana Ferreira</div>
-          <div style={{color:C.mist,fontSize:10,display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:C.emerald,display:"inline-block"}}/> Online · OMV verificada</div>
+          <div style={{color:"#fff",fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{me.name}</div>
+          <div style={{color:C.mist,fontSize:10,display:"flex",alignItems:"center",gap:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{width:6,height:6,borderRadius:"50%",background:C.emerald,display:"inline-block",flexShrink:0}}/> {me.spec}</div>
         </div>
         <Icon d={ic.cog} size={15} color={C.mist}/>
       </div>
@@ -3829,7 +3917,7 @@ export default function VetConnect() {
                 <Icon d={ic.bell} size={17} color={C.sub}/>
                 {unreadNotifs>0&&<div style={{position:"absolute",top:3,right:3,width:8,height:8,background:C.rose,borderRadius:"50%",border:`2px solid ${C.surface}`}}/>}
               </button>
-              <div style={{...ava(C,isMobile?30:36,true),flexShrink:0,cursor:"pointer"}} onClick={()=>changeTab("profile")} role="button" aria-label="Perfil">AF</div>
+              <div style={{...ava(C,isMobile?30:36,true),flexShrink:0,cursor:"pointer"}} onClick={()=>changeTab("profile")} role="button" aria-label="Perfil">{me.avatar}</div>
             </div>
 
             <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px 80px":"22px 22px 22px"}}>
@@ -3858,7 +3946,7 @@ export default function VetConnect() {
               )}
               {tabLoading
                 ? <SkeletonFeed C={C}/>
-                : <ActiveComp C={C} t={t} isMobile={isMobile} setMainTab={changeTab}/>
+                : <ActiveComp C={C} t={t} isMobile={isMobile} setMainTab={changeTab} me={me} profileLoaded={!!profile} onSignOut={signOut} onProfileSaved={()=>refreshProfile(session.user.id)}/>
               }
             </div>
 
