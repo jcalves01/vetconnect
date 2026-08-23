@@ -3479,6 +3479,13 @@ function AIDiagnosis({ C, t, isMobile, me }) {
   const [hemo,setHemo]=useState({}); const [bio,setBio]=useState({}); const [hor,setHor]=useState({});
   const [urine,setUrine]=useState({}); const [feces,setFeces]=useState({});
   const [loading,setLoading]=useState(false); const [result,setResult]=useState(null); const [error,setError]=useState(null);
+  const [provider, setProvider] = useState("anthropic");
+  const AI_PROVIDERS = [
+    {id:"anthropic", label:"Claude (Anthropic)"},
+    {id:"gemini", label:"Gemini (Google)"},
+    {id:"openai", label:"GPT (OpenAI)"},
+    {id:"deepseek", label:"DeepSeek"},
+  ];
   const [history, setHistory] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [compareIds, setCompareIds] = useState([]);
@@ -3540,12 +3547,12 @@ function AIDiagnosis({ C, t, isMobile, me }) {
       const res = await fetch("/api/diagnosis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ species, breed, age, sex, symptoms: allSymp, extra, labText })
+        body: JSON.stringify({ species, breed, age, sex, symptoms: allSymp, extra, labText, provider })
       });
 
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
-        try { const e = await res.json(); msg = e?.error?.message || msg; } catch(_) {}
+        try { const e = await res.json(); msg = e?.error || msg; } catch(_) {}
         throw new Error(msg);
       }
 
@@ -3659,6 +3666,12 @@ function AIDiagnosis({ C, t, isMobile, me }) {
         </div>
       )}
 
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12,flexWrap:"wrap"}}>
+        <label style={{fontSize:11,fontWeight:700,color:C.sub}}>MODELO IA</label>
+        <select value={provider} onChange={e=>setProvider(e.target.value)} disabled={loading} style={{...inp(C),fontSize:12,padding:"6px 10px",width:"auto"}}>
+          {AI_PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </div>
       <div style={{position:"sticky",bottom:isMobile?70:20,zIndex:20,marginTop:12}}>
         <button onClick={run} disabled={!canRun||loading}
           style={{...btn(C,"primary"),width:"100%",justifyContent:"center",padding:"13px 20px",fontSize:14,opacity:!canRun?0.45:1,background:`linear-gradient(90deg,${C.teal},${C.tealD})`,borderRadius:12,boxShadow:`0 4px 20px ${C.teal}44`}}>
@@ -3677,9 +3690,12 @@ function AIDiagnosis({ C, t, isMobile, me }) {
 
       {result&&(
         <div style={{marginTop:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
             <div style={{fontWeight:800,fontSize:isMobile?15:17,color:C.text}}>Resultados da Análise</div>
-            <span style={{...tag(urgC(result.urgencia)),fontSize:12}}>⚡ {result.urgencia}</span>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              {result.provider&&<span style={{...tag(C.purple),fontSize:11}}>{AI_PROVIDERS.find(p=>p.id===result.provider)?.label||result.provider}</span>}
+              <span style={{...tag(urgC(result.urgencia)),fontSize:12}}>⚡ {result.urgencia}</span>
+            </div>
           </div>
           <div style={{background:C.mint,borderRadius:10,padding:14,marginBottom:12,borderLeft:`4px solid ${C.teal}`}}>
             <div style={{fontSize:11,fontWeight:700,color:C.teal,marginBottom:5}}>RESUMO CLÍNICO</div>
