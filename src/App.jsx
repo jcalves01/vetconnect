@@ -632,8 +632,33 @@ function SearchSection({title,color,icon,children}){
 }
 function SearchHub({ query, onClose, C, t, setMainTab }) {
   const q = query.toLowerCase();
+  const [vets, setVets] = useState([]);
+
+  useEffect(() => {
+    if(!q.trim()){ setVets([]); return; }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, specialty, country")
+        .or(`full_name.ilike.%${q}%,specialty.ilike.%${q}%`)
+        .limit(10);
+      if(cancelled) return;
+      if(error){ console.error(error); setVets([]); return; }
+      setVets((data||[]).map(p => ({
+        id: p.id,
+        name: p.full_name || "Utilizador",
+        avatar: initialsOf(p.full_name),
+        spec: p.specialty || "",
+        country: p.country || "",
+        online: false,
+        verified: false,
+      })));
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [q]);
+
   if(!q) return null;
-  const vets=USERS.filter(u=>u.name.toLowerCase().includes(q)||u.spec.toLowerCase().includes(q));
   const cases=CASES_SOAP.filter(c=>c.title.toLowerCase().includes(q)||c.S.toLowerCase().includes(q));
   const courses=COURSES.filter(c=>c.title.toLowerCase().includes(q));
   const items=MARKET_ITEMS.filter(i=>i.title.toLowerCase().includes(q));
@@ -852,10 +877,31 @@ function VideoAdCard({ ad, C, compact=false }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // HOME FEED
 // ══════════════════════════════════════════════════════════════════════════════
+const mapPostRow = (row, me) => ({
+  id: row.id,
+  user: {
+    id: row.author_id,
+    name: row.profiles?.full_name || "Utilizador",
+    avatar: initialsOf(row.profiles?.full_name),
+    spec: row.profiles?.specialty || "",
+    online: true,
+  },
+  time: timeAgo(row.created_at),
+  type: row.type,
+  content: row.content,
+  likes: row.likes_count || 0,
+  comments: row.comments_count || 0,
+  tags: row.tags || [],
+  attachments: (row.post_attachments || []).map(a => ({ type: a.type, name: a.name, url: a.url })),
+  soap: row.soap,
+  likedByMe: (row.post_likes || []).some(l => l.user_id === me.id),
+});
+
 function Home({ C, t, isMobile, setMainTab, me }) {
   const [text, setText] = useState("");
-  const [posts, setPosts] = usePersistentState("vc_posts", POSTS);
-  const [liked, setLiked] = usePersistentState("vc_liked", []);
+  const [posts, setPosts] = useState([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [liked, setLiked] = useState([]);
   const [postAttachments, setPostAttachments] = useState([]);
   const [caseModalOpen, setCaseModalOpen] = useState(false);
   const [soapData, setSoapData] = useState({title:"",meta:"",S:"",O:"",A:"",P:""});
@@ -863,44 +909,109 @@ function Home({ C, t, isMobile, setMainTab, me }) {
   const [visibleCount, setVisibleCount] = useState(2);
   const [following, setFollowing] = useState([]);
   const [fbKey, triggerFb] = useFeedback();
+  const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState("");
 
-  const submitPost = () => {
+  const loadPosts = async () => {
+    const { data, error } = await supabase
+      .from("posts")
+      .select("*, profiles:author_id(full_name,specialty), post_attachments(type,name,url), post_likes(user_id)")
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (error) { console.error(error); setPostsLoading(false); return; }
+    const mapped = (data || []).map(row => mapPostRow(row, me));
+    setPosts(mapped);
+    setLiked(mapped.filter(p => p.likedByMe).map(p => p.id));
+    setPostsLoading(false);
+  };
+
+  useEffect(() => { loadPosts(); }, []);
+
+  const submitPost = async () => {
     if(!text.trim()&&postAttachments.length===0&&!soapData.title) return;
     const hasSoap = soapData.title&&(soapData.S||soapData.O||soapData.A||soapData.P);
-    const newPost = {
-      id: Date.now(),
-      user: me,
-      time: "agora",
-      type: hasSoap?"clinical":"post",
-      content: text||(hasSoap?`**${soapData.title}**${soapData.meta?" — "+soapData.meta:""}`:postAttachments.map(a=>a.name).join(", ")),
-      likes: 0,
-      comments: 0,
-      tags: [],
-      attachments: postAttachments,
-      soap: hasSoap?soapData:null,
-    };
-    setPosts(prev=>[newPost,...prev]);
-    setText("");
-    setPostAttachments([]);
-    setSoapData({title:"",meta:"",S:"",O:"",A:"",P:""});
-    setCaseModalOpen(false);
+    const content = text||(hasSoap?`**${soapData.title}**${soapData.meta?" — "+soapData.meta:""}`:postAttachments.map(a=>a.name).join(", "));
+    setPosting(true);
+    setPostError("");
+    try {
+      const { data: inserted, error: insErr } = await supabase.from("posts").insert({
+        author_id: me.id,
+        type: hasSoap?"clinical":"post",
+        content,
+        soap: hasSoap?soapData:null,
+      }).select().single();
+      if(insErr) throw insErr;
+
+      const uploadedAttachments = [];
+      for(const a of postAttachments){
+        if(!a.file) continue;
+        const path = `${me.id}/${Date.now()}-${a.file.name}`;
+        const { error: upErr } = await supabase.storage.from("post-media").upload(path, a.file);
+        if(upErr) throw upErr;
+        const { data: pub } = supabase.storage.from("post-media").getPublicUrl(path);
+        uploadedAttachments.push({ post_id: inserted.id, type: a.type, name: a.file.name, url: pub.publicUrl });
+      }
+      if(uploadedAttachments.length){
+        const { error: attErr } = await supabase.from("post_attachments").insert(uploadedAttachments);
+        if(attErr) throw attErr;
+      }
+
+      setPosts(prev => [mapPostRow({
+        ...inserted,
+        profiles: { full_name: me.name, specialty: me.spec },
+        post_attachments: uploadedAttachments,
+        post_likes: [],
+      }, me), ...prev]);
+      setText("");
+      setPostAttachments([]);
+      setSoapData({title:"",meta:"",S:"",O:"",A:"",P:""});
+      setCaseModalOpen(false);
+    } catch(err) {
+      setPostError(err.message || "Erro ao publicar.");
+    } finally {
+      setPosting(false);
+    }
   };
-  
+
   const [openComments, setOpenComments] = useState({});
   const [commentInputs, setCommentInputs] = useState({});
-  const [postComments, setPostComments] = useState({
-    1:[{id:1,user:USERS[1],text:"Caso muito interessante! Já consideraste hiperadrenocorticismo atípico com apenas cortisol basal elevado?",time:"há 1h"},{id:2,user:USERS[2],text:"Concordo. Fizeste ecografia hepática? Pode ajudar a diferenciar PDH.",time:"há 45 min"}],
-    2:[{id:1,user:USERS[2],text:"Excelente resultado! Qual o protocolo de anestesia que utilizas nestes casos?",time:"há 3h"}],
-    3:[],
-  });
+  const [postComments, setPostComments] = useState({});
 
-  const toggleComments = (id) => setOpenComments(prev=>({...prev,[id]:!prev[id]}));
-  const submitComment = (postId) => {
-    const text = (commentInputs[postId]||"").trim();
-    if(!text) return;
-    setPostComments(prev=>({...prev,[postId]:[...(prev[postId]||[]),{id:Date.now(),user:me,text,time:"agora"}]}));
+  const toggleComments = async (id) => {
+    const opening = !openComments[id];
+    setOpenComments(prev=>({...prev,[id]:opening}));
+    if(opening && !postComments[id]){
+      const { data, error } = await supabase
+        .from("post_comments")
+        .select("id, text, created_at, profiles:author_id(full_name)")
+        .eq("post_id", id)
+        .order("created_at", { ascending: true });
+      if(error){ console.error(error); return; }
+      setPostComments(prev=>({...prev,[id]:(data||[]).map(c=>({
+        id: c.id,
+        user: { name: c.profiles?.full_name || "Utilizador", avatar: initialsOf(c.profiles?.full_name) },
+        text: c.text,
+        time: timeAgo(c.created_at),
+      }))}));
+    }
+  };
+  const submitComment = async (postId) => {
+    const txt = (commentInputs[postId]||"").trim();
+    if(!txt) return;
     setCommentInputs(prev=>({...prev,[postId]:""}));
+    const { data, error } = await supabase.from("post_comments").insert({ post_id: postId, author_id: me.id, text: txt }).select().single();
+    if(error){ console.error(error); return; }
+    setPostComments(prev=>({...prev,[postId]:[...(prev[postId]||[]),{id:data.id,user:me,text:txt,time:"agora"}]}));
     setPosts(prev=>prev.map(p=>p.id===postId?{...p,comments:p.comments+1}:p));
+  };
+  const toggleLike = async (postId) => {
+    const isLiked = liked.includes(postId);
+    setLiked(l=>isLiked?l.filter(x=>x!==postId):[...l,postId]);
+    setPosts(prev=>prev.map(p=>p.id===postId?{...p,likes:p.likes+(isLiked?-1:1)}:p));
+    const { error } = isLiked
+      ? await supabase.from("post_likes").delete().eq("post_id", postId).eq("user_id", me.id)
+      : await supabase.from("post_likes").insert({ post_id: postId, user_id: me.id });
+    if(error) console.error(error);
   };
   const typeColor={clinical:C.teal,event:C.purple,post:C.slate};
   const typeLabel={clinical:"🔬 Caso Clínico",event:"📅 Evento",post:"📝 Post"};
@@ -940,11 +1051,11 @@ function Home({ C, t, isMobile, setMainTab, me }) {
             {/* File buttons: label wraps input with opacity:0 overlay — works in sandbox */}
             {[
               {label:isMobile?"📷":"📷 Foto", accept:"image/*", multi:true,
-                cb:files=>files.forEach(f=>setPostAttachments(p=>[...p,{type:"image",name:f.name,url:URL.createObjectURL(f)}]))},
+                cb:files=>files.forEach(f=>setPostAttachments(p=>[...p,{type:"image",name:f.name,url:URL.createObjectURL(f),file:f}]))},
               {label:isMobile?"📎":"📎 Ficheiro", accept:".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip", multi:true,
-                cb:files=>files.forEach(f=>setPostAttachments(p=>[...p,{type:"doc",name:f.name}]))},
+                cb:files=>files.forEach(f=>setPostAttachments(p=>[...p,{type:"doc",name:f.name,file:f}]))},
               {label:isMobile?"🎬":"🎬 Vídeo", accept:"video/*", multi:false,
-                cb:files=>{const f=files[0];if(f)setPostAttachments(p=>[...p,{type:"video",name:f.name,url:URL.createObjectURL(f)}])}},
+                cb:files=>{const f=files[0];if(f)setPostAttachments(p=>[...p,{type:"video",name:f.name,url:URL.createObjectURL(f),file:f}])}},
             ].map((item,i)=>(
               <label key={i} style={{
                 position:"relative",display:"inline-flex",alignItems:"center",
@@ -966,11 +1077,15 @@ function Home({ C, t, isMobile, setMainTab, me }) {
               {isMobile?"🔬":"🔬 Caso"}
             </button>
           </div>
-          <button onClick={submitPost} disabled={!text.trim()&&postAttachments.length===0&&!soapData.title}
-            style={{...btn(C,"primary",isMobile),opacity:(!text.trim()&&postAttachments.length===0&&!soapData.title)?0.5:1}}>
-            {t("publish")}
+          <button onClick={submitPost} disabled={posting||(!text.trim()&&postAttachments.length===0&&!soapData.title)}
+            style={{...btn(C,"primary",isMobile),opacity:(posting||(!text.trim()&&postAttachments.length===0&&!soapData.title))?0.5:1}}>
+            {posting?"A publicar…":t("publish")}
           </button>
         </div>
+
+        {postError&&(
+          <div style={{marginTop:10,background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.rose}}>⚠️ {postError}</div>
+        )}
 
         {/* SOAP Case inline form */}
         {caseModalOpen&&(
@@ -996,6 +1111,12 @@ function Home({ C, t, isMobile, setMainTab, me }) {
         )}
       </div>
       <VideoAdCard ad={VIDEO_ADS[0]} C={C} compact/>
+      {postsLoading&&<SkeletonFeed C={C}/>}
+      {!postsLoading&&posts.length===0&&(
+        <div style={{...card(C),textAlign:"center",color:C.sub,fontSize:13,padding:"28px 16px"}}>
+          Ainda não há publicações. Sê o primeiro a partilhar um caso ou artigo! 📝
+        </div>
+      )}
       {posts.slice(0,visibleCount).map((p,idx)=>(
         <React.Fragment key={p.id}>
           <div style={{...card(C),border:`1px solid ${C.border}`}}>
@@ -1061,8 +1182,8 @@ function Home({ C, t, isMobile, setMainTab, me }) {
             {p.tags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>{p.tags.map(tg=><span key={tg} style={tag(C.teal)}>#{tg}</span>)}</div>}
             <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,display:"flex",gap:2}}>
               {[
-                {emoji:"❤️",label:`${liked.includes(p.id)?p.likes+1:p.likes}`,act:()=>setLiked(l=>l.includes(p.id)?l.filter(x=>x!==p.id):[...l,p.id]),active:liked.includes(p.id),col:C.rose},
-                {emoji:"💬",label:`${(postComments[p.id]||[]).length+(p.comments||0)}`,act:()=>toggleComments(p.id),active:!!openComments[p.id],col:C.teal},
+                {emoji:"❤️",label:`${p.likes}`,act:()=>toggleLike(p.id),active:liked.includes(p.id),col:C.rose},
+                {emoji:"💬",label:`${p.comments}`,act:()=>toggleComments(p.id),active:!!openComments[p.id],col:C.teal},
                 {emoji:shareFeedback===p.id?"✅":"↗️",label:shareFeedback===p.id?"Copiado!":(isMobile?"":"Partilhar"),act:()=>{
                   if(navigator.clipboard) navigator.clipboard.writeText(`https://vetconnect.pt/post/${p.id}`);
                   setShareFeedback(p.id);
@@ -3564,6 +3685,18 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════════
 const initialsOf = (name) => (name||"").trim().split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("").toUpperCase() || "?";
+
+const timeAgo = (iso) => {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `há ${d}d`;
+  return new Date(iso).toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit", year: "numeric" });
+};
 
 export default function VetConnect() {
   // ── Auth (Supabase) ──────────────────────────────────────────────────────
