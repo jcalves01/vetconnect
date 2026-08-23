@@ -621,7 +621,11 @@ function SearchHub({ query, onClose, C, t, setMainTab }) {
           {total>0?`${total} resultados para "${query}"`:`${t("search_empty")} "${query}"`}
         </div>
         {vets.length>0&&<SearchSection title={`${t("results_vets")} (${vets.length})`} color={C.teal} icon="👥">
-          {vets.map(u=><div key={u.id} onClick={()=>{setMainTab("community");onClose();}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 20px",cursor:"pointer",borderBottom:`1px solid ${C.border}`}}>
+          {vets.map(u=><div key={u.id} onClick={async ()=>{
+              const { error } = await supabase.rpc("get_or_create_dm", { other_user_id: u.id });
+              if(error) console.error(error);
+              setMainTab("community"); onClose();
+            }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 20px",cursor:"pointer",borderBottom:`1px solid ${C.border}`}}>
             <div style={ava(C,34,u.online)}>{u.avatar}</div>
             <div><div style={{fontWeight:600,fontSize:13,color:C.text}}>{u.name}{u.verified&&" ✅"}</div><div style={{fontSize:11,color:C.sub}}>{u.spec} · {u.country}</div></div>
           </div>)}
