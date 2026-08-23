@@ -183,20 +183,6 @@ const GROUPS = [
   {id:1,name:"Oncologia UCL",members:12,last:"Dr. Pedro: novo protocolo…",unread:3,avatar:"🎗️"},
   {id:2,name:"Caso #1234 — Equipa",members:4,last:"Dra. Ana: ecografia hoje…",unread:1,avatar:"🔬"},
 ];
-const MSGS = [
-  {id:1,user:USERS[1],last:"Obrigado pela partilha do caso!",time:"14:23",unread:2,online:false,typing:false},
-  {id:2,user:USERS[2],last:"Confirma a tua presença no webinar?",time:"11:05",unread:0,online:true,typing:true},
-  {id:3,user:USERS[3],last:"Tens referências sobre o protocolo?",time:"Ontem",unread:1,online:false,typing:false},
-];
-const CHAT_INIT = [
-  {from:"them",text:"Olá! Vi o teu caso — muito interessante.",time:"11:00"},
-  {from:"me",text:"Obrigada! Aguardo os resultados do cortisol.",time:"11:02"},
-  {from:"them",type:"image",fileName:"ecografia_adrenal.jpg",fileSize:"1.2 MB",time:"11:04"},
-  {from:"them",text:"Tens em consideração hiperadrenocorticismo atípico?",time:"11:05"},
-  {from:"me",type:"document",fileName:"resultado_hemograma.pdf",fileSize:"340 KB",time:"11:09"},
-  {from:"me",type:"video",fileName:"video_caso_clinico.mp4",fileSize:"8.4 MB",time:"11:11"},
-  {from:"them",text:"Confirma presença no webinar de dermatologia?",time:"11:12"},
-];
 const NOTIFS = [
   {id:1,type:"like",user:"Dr. Rui Santos",action:"gostou da sua publicação",target:"Caso clínico: Golden Retriever…",time:"há 5 min",read:false,avatar:"RS",color:"#E05C6A"},
   {id:2,type:"comment",user:"Dra. Marta Lima",action:"comentou na sua publicação",target:'"Excelente abordagem!"',time:"há 18 min",read:false,avatar:"ML",color:"#0D7377"},
@@ -223,12 +209,6 @@ const MARKET_ITEMS = [
   {id:2,title:"Clínica Veterinária c/ carteira clientes",cat:"Negócio",price:"€95.000",cond:"Em funcionamento",loc:"Porto",seller:"Dr. Manuel Sousa",img:"🏥",rating:5.0,verified:true},
   {id:3,title:"Stock Antibióticos - Lote 2024",cat:"Stock",price:"€1.800",cond:"Novo",loc:"Braga",seller:"MedVet Lda",img:"💊",rating:4.8,verified:false},
   {id:4,title:"Ecógrafo MyLab X8 VET",cat:"Equipamento",price:"€8.500",cond:"Usado - Ótimo",loc:"Coimbra",seller:"Dra. Ana Pinto",img:"📡",rating:4.7,verified:true},
-];
-const JOBS = [
-  {id:1,title:"Veterinário(a) de Medicina Interna",company:"HV das Laranjeiras",type:"Full-time",loc:"Lisboa",salary:"€2.800–€3.500/mês",posted:"há 2 dias",urgent:true,match:96},
-  {id:2,title:"Veterinário(a) Cirurgião",company:"VetClinics Portugal",type:"Full-time",loc:"Porto",salary:"€3.200–€4.000/mês",posted:"há 3 dias",urgent:false,match:72},
-  {id:3,title:"Veterinário(a) de Guardia",company:"Clínica 24h VetCare",type:"Part-time",loc:"Nacional",salary:"€1.400–€1.800/mês",posted:"há 5 dias",urgent:false,match:58},
-  {id:4,title:"Investigador(a) em Oncologia Vet.",company:"Universidade de Lisboa",type:"Investigação",loc:"Lisboa",salary:"€2.200/mês + bolsa",posted:"há 1 semana",urgent:false,match:81},
 ];
 const SUPPLIERS = [
   {id:1,name:"IDEXX Laboratories",cat:"Laboratório Diagnóstico",icon:"🧬",color:"#0D7377",desc:"Líder mundial em diagnóstico veterinário in-house e referência.",
@@ -1253,11 +1233,18 @@ function Home({ C, t, isMobile, setMainTab, me }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // COMMUNITY (Mensagens + Grupos + Reuniões)
 // ══════════════════════════════════════════════════════════════════════════════
-function Community({ C, t, isMobile }) {
+function Community({ C, t, isMobile, me }) {
   const [sub, setSub] = useState("messages");
   const [sel, setSel] = useState(null);
   const [input, setInput] = useState("");
-  const [chat, setChat] = useState(CHAT_INIT);
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [conversations, setConversations] = useState([]);
+  const [conversationsLoading, setConversationsLoading] = useState(true);
+  const [newDmOpen, setNewDmOpen] = useState(false);
+  const [newDmSearch, setNewDmSearch] = useState("");
+  const [newDmResults, setNewDmResults] = useState([]);
+  const [newDmLoading, setNewDmLoading] = useState(false);
   const [call, setCall] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [previewImg, setPreviewImg] = useState(null);
@@ -1285,19 +1272,146 @@ function Community({ C, t, isMobile }) {
   const showList = !isMobile || !sel;
   const showChat = !isMobile || sel;
   const now = () => new Date().toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"});
-  const filteredMsgs = msgSearchActive && msgSearch.trim()
-    ? MSGS.filter(m=>m.user.name.toLowerCase().includes(msgSearch.toLowerCase())||m.last.toLowerCase().includes(msgSearch.toLowerCase()))
-    : MSGS;
-  const sendMsg = () => { if(!input.trim())return; setChat(c=>[...c,{from:"me",text:input,time:now()}]); setInput(""); };
-  const handleFile = (e, type) => {
-    const f=e.target.files?.[0]; if(!f)return;
+  const filteredConversations = msgSearchActive && msgSearch.trim()
+    ? conversations.filter(c=>c.user.name.toLowerCase().includes(msgSearch.toLowerCase())||c.last.toLowerCase().includes(msgSearch.toLowerCase()))
+    : conversations;
+
+  const mapMessageRow = (m) => ({
+    id: m.id,
+    from: m.author_id===me.id ? "me" : "them",
+    text: m.text,
+    type: m.attachment_type || undefined,
+    fileName: m.attachment_name || undefined,
+    previewUrl: m.attachment_url || undefined,
+    time: timeAgo(m.created_at),
+  });
+
+  const loadConversations = async () => {
+    setConversationsLoading(true);
+    const { data: parts, error } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id")
+      .eq("user_id", me.id);
+    if(error){ console.error(error); setConversationsLoading(false); return; }
+    const convIds = (parts||[]).map(p=>p.conversation_id);
+    if(convIds.length===0){ setConversations([]); setConversationsLoading(false); return; }
+    const { data: others, error: err2 } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id, profiles:user_id(id,full_name,specialty)")
+      .in("conversation_id", convIds)
+      .neq("user_id", me.id);
+    if(err2){ console.error(err2); setConversationsLoading(false); return; }
+    const { data: lastMsgs } = await supabase
+      .from("messages")
+      .select("conversation_id, text, created_at")
+      .in("conversation_id", convIds)
+      .order("created_at", { ascending: false });
+    const lastByConv = {};
+    (lastMsgs||[]).forEach(m=>{ if(!lastByConv[m.conversation_id]) lastByConv[m.conversation_id]=m; });
+    const list = (others||[]).map(o=>({
+      id: o.conversation_id,
+      user: {
+        id: o.profiles?.id,
+        name: o.profiles?.full_name || "Utilizador",
+        avatar: initialsOf(o.profiles?.full_name),
+        spec: o.profiles?.specialty || "",
+        online: false,
+      },
+      last: lastByConv[o.conversation_id]?.text || "Conversa iniciada",
+      time: lastByConv[o.conversation_id] ? timeAgo(lastByConv[o.conversation_id].created_at) : "",
+      unread: 0,
+    })).sort((a,b)=>(lastByConv[b.id]?.created_at||"").localeCompare(lastByConv[a.id]?.created_at||""));
+    setConversations(list);
+    setConversationsLoading(false);
+  };
+  useEffect(() => { loadConversations(); }, [me.id]);
+
+  const openConversation = async (conv) => {
+    setSel(conv);
+    setMessagesLoading(true);
+    const { data, error } = await supabase
+      .from("messages")
+      .select("id, author_id, text, attachment_type, attachment_url, attachment_name, created_at")
+      .eq("conversation_id", conv.id)
+      .order("created_at", { ascending: true });
+    if(error){ console.error(error); setMessagesLoading(false); return; }
+    setMessages((data||[]).map(mapMessageRow));
+    setMessagesLoading(false);
+  };
+
+  useEffect(() => {
+    if(!sel) return;
+    const channel = supabase.channel(`messages:${sel.id}`)
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"messages", filter:`conversation_id=eq.${sel.id}` }, payload => {
+        if(payload.new.author_id === me.id) return; // already added optimistically
+        setMessages(prev=>[...prev, mapMessageRow(payload.new)]);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [sel?.id, me.id]);
+
+  useEffect(() => {
+    if(!newDmOpen) return;
+    setNewDmLoading(true);
+    const handle = setTimeout(async () => {
+      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).limit(20);
+      if(newDmSearch.trim()) query = query.ilike("full_name", `%${newDmSearch.trim()}%`);
+      const { data, error } = await query;
+      if(!error) setNewDmResults(data||[]);
+      setNewDmLoading(false);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [newDmOpen, newDmSearch, me.id]);
+
+  const startConversation = async (otherUser) => {
+    const { data: convId, error } = await supabase.rpc("get_or_create_dm", { other_user_id: otherUser.id });
+    if(error){ console.error(error); return; }
+    const conv = {
+      id: convId,
+      user: { id: otherUser.id, name: otherUser.full_name||"Utilizador", avatar: initialsOf(otherUser.full_name), spec: otherUser.specialty||"", online:false },
+      last: "", time: "", unread: 0,
+    };
+    setConversations(prev => prev.some(c=>c.id===convId) ? prev : [conv, ...prev]);
+    setNewDmOpen(false); setNewDmSearch("");
+    openConversation(conv);
+  };
+
+  const sendMsg = async () => {
+    if(!input.trim()||!sel) return;
+    const text = input.trim();
+    setInput("");
+    const tempId = `tmp-${Date.now()}`;
+    setMessages(c=>[...c,{id:tempId,from:"me",text,time:now()}]);
+    const { data, error } = await supabase.from("messages").insert({ conversation_id: sel.id, author_id: me.id, text }).select().single();
+    if(error){ console.error(error); return; }
+    setMessages(prev=>prev.map(m=>m.id===tempId?{...m,id:data.id}:m));
+    setConversations(prev=>prev.map(c=>c.id===sel.id?{...c,last:text,time:"agora"}:c));
+  };
+  const handleFile = async (e, type) => {
+    const f=e.target.files?.[0]; if(!f||!sel)return;
+    setAttachOpen(false); e.target.value="";
     const isImg=type==="photo"||f.type.startsWith("image/");
     const isVid=type==="video"||f.type.startsWith("video/");
     const size=f.size>1048576?`${(f.size/1048576).toFixed(1)} MB`:`${Math.round(f.size/1024)} KB`;
-    const url=(isImg||isVid)?URL.createObjectURL(f):null;
+    const previewUrl=(isImg||isVid)?URL.createObjectURL(f):null;
     const msgType=isImg?"image":isVid?"video":"document";
-    setChat(c=>[...c,{from:"me",type:msgType,fileName:f.name,fileSize:size,previewUrl:url,time:now()}]);
-    setAttachOpen(false); e.target.value="";
+    const tempId = `tmp-${Date.now()}`;
+    setMessages(c=>[...c,{id:tempId,from:"me",type:msgType,fileName:f.name,fileSize:size,previewUrl,time:now()}]);
+    try {
+      const path = `${me.id}/messages/${Date.now()}-${f.name}`;
+      const { error: upErr } = await supabase.storage.from("post-media").upload(path, f);
+      if(upErr) throw upErr;
+      const { data: pub } = supabase.storage.from("post-media").getPublicUrl(path);
+      const { data, error } = await supabase.from("messages").insert({
+        conversation_id: sel.id, author_id: me.id, text: "",
+        attachment_type: msgType, attachment_url: pub.publicUrl, attachment_name: f.name,
+      }).select().single();
+      if(error) throw error;
+      setMessages(prev=>prev.map(m=>m.id===tempId?{...m,id:data.id,previewUrl:pub.publicUrl}:m));
+      setConversations(prev=>prev.map(c=>c.id===sel.id?{...c,last:`📎 ${f.name}`,time:"agora"}:c));
+    } catch(err) {
+      console.error(err);
+    }
   };
 
   const Bubble = ({m}) => {
@@ -1389,7 +1503,11 @@ function Community({ C, t, isMobile }) {
           {showList&&(
             <div style={{width:isMobile?"100%":270,borderRight:isMobile?"none":`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
               <div style={{padding:14,borderBottom:`1px solid ${C.border}`}}>
-                <div style={{fontWeight:700,marginBottom:10,fontSize:15,color:C.text}}>{t("messages")}</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{fontWeight:700,fontSize:15,color:C.text}}>{t("messages")}</div>
+                  <button onClick={()=>setNewDmOpen(v=>!v)} aria-label="Nova conversa"
+                    style={{background:newDmOpen?C.mint:C.bg,border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:13,fontWeight:700,color:C.teal}}>✉️+</button>
+                </div>
                 <SearchBar
                   value={msgSearch}
                   onChange={v=>{setMsgSearch(v);setMsgSearchActive(!!v);}}
@@ -1398,22 +1516,41 @@ function Community({ C, t, isMobile }) {
                   C={C}
                 />
               </div>
+              {newDmOpen&&(
+                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.bg}}>
+                  <input value={newDmSearch} onChange={e=>setNewDmSearch(e.target.value)}
+                    placeholder={"🔍 "+t("search_colleagues")} style={{...inp(C),fontSize:12,marginBottom:8}}/>
+                  <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:180,overflowY:"auto"}}>
+                    {newDmLoading&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>A procurar…</div>}
+                    {!newDmLoading&&newDmResults.length===0&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>Sem colegas encontrados.</div>}
+                    {newDmResults.map(u=>(
+                      <div key={u.id} onClick={()=>startConversation(u)} role="button"
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:8,cursor:"pointer",background:C.surface}}>
+                        <div style={{...ava(C,28),flexShrink:0}}>{initialsOf(u.full_name)}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.full_name||"Utilizador"}</div>
+                          <div style={{fontSize:10,color:C.sub}}>{u.specialty||""}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={{overflowY:"auto",flex:1}}>
-                {filteredMsgs.length===0&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>Sem resultados para "{msgSearch}"</div>}
-                {filteredMsgs.map(m=>(
-                  <div key={m.id} onClick={()=>setSel(m)} role="button"
-                    style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer",background:sel?.id===m.id?C.mint:"transparent",borderBottom:`1px solid ${C.border}`,transition:"background .15s"}}>
-                    <div style={ava(C,38,m.online)}>{m.user.avatar}</div>
+                {conversationsLoading&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>A carregar…</div>}
+                {!conversationsLoading&&filteredConversations.length===0&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>{msgSearchActive&&msgSearch.trim()?`Sem resultados para "${msgSearch}"`:"Ainda sem conversas — use ✉️+ para começar."}</div>}
+                {filteredConversations.map(c=>(
+                  <div key={c.id} onClick={()=>openConversation(c)} role="button"
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer",background:sel?.id===c.id?C.mint:"transparent",borderBottom:`1px solid ${C.border}`,transition:"background .15s"}}>
+                    <div style={ava(C,38,c.user.online)}>{c.user.avatar}</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{display:"flex",justifyContent:"space-between"}}>
-                        <div style={{fontWeight:600,fontSize:13,color:C.text}}>{m.user.name}</div>
-                        <div style={{fontSize:11,color:C.sub}}>{m.time}</div>
+                        <div style={{fontWeight:600,fontSize:13,color:C.text}}>{c.user.name}</div>
+                        <div style={{fontSize:11,color:C.sub}}>{c.time}</div>
                       </div>
-                      <div style={{fontSize:12,color:m.typing?C.teal:C.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:m.typing?"italic":"normal"}}>
-                        {m.typing?`${t("typing")}`:`${m.last}`}
-                      </div>
+                      <div style={{fontSize:12,color:C.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.last}</div>
                     </div>
-                    {m.unread>0&&<div style={{background:C.teal,color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{m.unread}</div>}
+                    {c.unread>0&&<div style={{background:C.teal,color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{c.unread}</div>}
                   </div>
                 ))}
               </div>
@@ -1423,11 +1560,11 @@ function Community({ C, t, isMobile }) {
             <div style={{flex:1,display:"flex",flexDirection:"column",position:"relative"}}>
               <div style={{padding:isMobile?"10px 12px":"12px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10,background:C.surface,flexShrink:0}}>
                 {isMobile&&<button onClick={()=>setSel(null)} style={{background:"none",border:"none",cursor:"pointer",padding:4}} aria-label="Voltar"><Icon d={ic.back} size={20} color={C.sub}/></button>}
-                <div style={ava(C,34,sel.online)}>{sel.user.avatar}</div>
+                <div style={ava(C,34,sel.user.online)}>{sel.user.avatar}</div>
                 <div style={{flex:1}}>
                   <div style={{fontWeight:700,fontSize:13,color:C.text}}>{sel.user.name}</div>
-                  <div style={{fontSize:11,color:sel.typing?C.teal:sel.online?C.emerald:C.sub,fontStyle:sel.typing?"italic":"normal"}}>
-                    {sel.typing?t("typing"):sel.online?t("online"):t("offline")}
+                  <div style={{fontSize:11,color:sel.user.online?C.emerald:C.sub}}>
+                    {sel.user.online?t("online"):t("offline")}
                   </div>
                 </div>
                 <button onClick={()=>setCall(!call)} style={{...btn(C,call?"danger":"outline",true),fontSize:11}}><Icon d={ic.phone} size={13}/>{!isMobile&&(call?"Terminar":"Chamar")}</button>
@@ -1452,8 +1589,10 @@ function Community({ C, t, isMobile }) {
                 </div>
               )}
               <div style={{flex:1,overflowY:"auto",padding:isMobile?"12px 10px":"14px 18px",display:"flex",flexDirection:"column",gap:8}}>
-                {chat.map((m,i)=>(
-                  <div key={i} style={{display:"flex",justifyContent:m.from==="me"?"flex-end":"flex-start"}}>
+                {messagesLoading&&<div style={{textAlign:"center",color:C.sub,fontSize:12}}>A carregar mensagens…</div>}
+                {!messagesLoading&&messages.length===0&&<div style={{textAlign:"center",color:C.sub,fontSize:12}}>Ainda sem mensagens — diga olá 👋</div>}
+                {messages.map((m,i)=>(
+                  <div key={m.id||i} style={{display:"flex",justifyContent:m.from==="me"?"flex-end":"flex-start"}}>
                     <Bubble m={m}/>
                   </div>
                 ))}
@@ -2276,7 +2415,25 @@ function SupplierDetail({ s, C, t, isMobile, onBack }) {
   );
 }
 
-function Market({ C, t, isMobile }) {
+const computeJobMatch = (job, me) => {
+  const haystack = `${job.title} ${job.company} ${job.description||""}`.toLowerCase();
+  const interests = [...(me?.interests||[]), me?.spec].filter(Boolean);
+  const hits = interests.filter(i=>haystack.includes(i.toLowerCase())).length;
+  return Math.min(95, 55 + hits*15);
+};
+const mapJobRow = (row, me) => ({
+  id: row.id,
+  title: row.title,
+  company: row.company,
+  type: row.type,
+  loc: row.loc,
+  salary: row.salary,
+  posted: timeAgo(row.created_at),
+  urgent: row.urgent,
+  match: computeJobMatch(row, me),
+});
+
+function Market({ C, t, isMobile, me }) {
   const [sub, setSub] = useState("marketplace");
   const [priceMax, setPriceMax] = useState(1000000);
   const [selSupplier, setSelSupplier] = useState(null);
@@ -2300,7 +2457,8 @@ function Market({ C, t, isMobile }) {
   const [marketItems, setMarketItems] = useState(MARKET_ITEMS);
   const [newJobOpen, setNewJobOpen] = useState(false);
   const [newJob, setNewJob] = useState({title:"",company:"",type:"Full-time",loc:"",salary:"",desc:""});
-  const [jobItems, setJobItems] = useState(JOBS);
+  const [jobItems, setJobItems] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
   const EMOJI_MAP = {"Equipamento":"🔬","Negócio":"🏥","Stock":"💊"};
   const CONDITIONS = ["Novo","Usado - Ótimo","Usado - Bom","Usado - Razoável","Em funcionamento"];
   const CATEGORIES = ["Equipamento","Negócio","Stock"];
@@ -2311,6 +2469,53 @@ function Market({ C, t, isMobile }) {
     const matchLoc=!jobQuery.loc||j.loc.toLowerCase().includes(jobQuery.loc.toLowerCase());
     return matchText&&matchLoc;
   });
+
+  const loadJobs = async () => {
+    const { data, error } = await supabase.from("jobs").select("*").order("created_at",{ascending:false}).limit(50);
+    if(error){ console.error(error); setJobsLoading(false); return; }
+    setJobItems((data||[]).map(row=>mapJobRow(row, me)));
+    setJobsLoading(false);
+  };
+  useEffect(() => { loadJobs(); }, []);
+
+  useEffect(() => {
+    const loadSavedJobs = async () => {
+      const { data, error } = await supabase.from("saved_jobs").select("job_id").eq("user_id", me.id);
+      if(error){ console.error(error); return; }
+      setSavedJobs((data||[]).map(r=>r.job_id));
+    };
+    loadSavedJobs();
+  }, [me.id]);
+
+  const toggleSaveJob = async (jobId) => {
+    const isSaved = savedJobs.includes(jobId);
+    setSavedJobs(s=>isSaved?s.filter(x=>x!==jobId):[...s,jobId]);
+    const { error } = isSaved
+      ? await supabase.from("saved_jobs").delete().eq("job_id", jobId).eq("user_id", me.id)
+      : await supabase.from("saved_jobs").insert({ job_id: jobId, user_id: me.id });
+    if(error) console.error(error);
+  };
+
+  const createJob = async () => {
+    if(!newJob.title.trim()||!newJob.company.trim()||!newJob.loc.trim()){
+      alert("Por favor preencha título, empresa e localização.");
+      return;
+    }
+    const { data, error } = await supabase.from("jobs").insert({
+      author_id: me.id,
+      title: newJob.title.trim(),
+      company: newJob.company.trim(),
+      type: newJob.type,
+      loc: newJob.loc.trim(),
+      salary: newJob.salary.trim()||"A definir",
+      description: newJob.desc.trim(),
+    }).select().single();
+    if(error){ console.error(error); alert("Erro ao publicar vaga: "+error.message); return; }
+    setJobItems(prev=>[mapJobRow(data, me), ...prev]);
+    setJobsVisible(v=>v+1);
+    setNewJob({title:"",company:"",type:"Full-time",loc:"",salary:"",desc:""});
+    setNewJobOpen(false);
+  };
 
   const generateReport = async () => {
     setReportLoading(true); setReportOpen(true); setReportText("");
@@ -2656,26 +2861,7 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <button onClick={()=>{setNewJobOpen(false);setNewJob({title:"",company:"",type:"Full-time",loc:"",salary:"",desc:""}); }} style={btn(C,"outline",true)}>Cancelar</button>
                 <button
-                  onClick={()=>{
-                    if(!newJob.title.trim()||!newJob.company.trim()||!newJob.loc.trim()){
-                      alert("Por favor preencha título, empresa e localização.");
-                      return;
-                    }
-                    setJobItems(prev=>[{
-                      id: Date.now(),
-                      title: newJob.title.trim(),
-                      company: newJob.company.trim(),
-                      type: newJob.type,
-                      loc: newJob.loc.trim(),
-                      salary: newJob.salary.trim()||"A definir",
-                      posted: "agora",
-                      urgent: false,
-                      match: Math.floor(Math.random()*30)+60, // 60-90%
-                    },...prev]);
-                    setJobsVisible(v=>v+1);
-                    setNewJob({title:"",company:"",type:"Full-time",loc:"",salary:"",desc:""});
-                    setNewJobOpen(false);
-                  }}
+                  onClick={createJob}
                   disabled={!newJob.title.trim()||!newJob.company.trim()||!newJob.loc.trim()}
                   style={{...btn(C,"primary",true),opacity:(!newJob.title.trim()||!newJob.company.trim()||!newJob.loc.trim())?0.5:1}}>
                   💼 Publicar Vaga
@@ -2708,7 +2894,8 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
               C={C}
             />}
           </div>
-          {filteredJobs.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Sem vagas para os critérios seleccionados.</div>}
+          {jobsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar vagas…</div>}
+          {!jobsLoading&&filteredJobs.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Sem vagas para os critérios seleccionados.</div>}
           {/* Report context bar */}
           {filteredJobs.length>0&&(
             <div style={{background:C.purple+"12",border:`1px solid ${C.purple}30`,borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -2744,7 +2931,7 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                 </div>
               </div>
               <div style={{display:"flex",gap:6,marginTop:12}}>
-                <button onClick={()=>setSavedJobs(s=>s.includes(j.id)?s.filter(x=>x!==j.id):[...s,j.id])}
+                <button onClick={()=>toggleSaveJob(j.id)}
                   style={{...btn(C,savedJobs.includes(j.id)?"primary":"outline",true),background:savedJobs.includes(j.id)?C.amber:undefined}}>
                   {savedJobs.includes(j.id)?"★ Guardado":t("save")}
                 </button>
@@ -3301,22 +3488,91 @@ function Protocols({ C, t, isMobile }) {
   );
 }
 
+const mapCaseRow = (row) => ({
+  id: row.id,
+  user: {
+    id: row.author_id,
+    name: row.profiles?.full_name || "Utilizador",
+    avatar: initialsOf(row.profiles?.full_name),
+    spec: row.profiles?.specialty || "",
+    online: true,
+  },
+  title: row.title,
+  species: row.species,
+  breed: row.breed,
+  age: row.age,
+  sex: row.sex,
+  date: timeAgo(row.created_at),
+  status: row.status,
+  replies: row.replies_count || 0,
+  S: row.subjective, O: row.objective, A: row.assessment, P: row.plan,
+});
+
 function SOAPCases({ C, t, isMobile, me }) {
   const [sel,setSel]=useState(null);
   const [caseComments, setCaseComments] = useState({});
   const [caseInputs, setCaseInputs] = useState({});
   const [newCaseOpen, setNewCaseOpen] = useState(false);
   const [newCase, setNewCase] = useState({title:"",meta:"",S:"",O:"",A:"",P:""});
-  const [cases, setCases] = useState(CASES_SOAP);
+  const [cases, setCases] = useState([]);
+  const [casesLoading, setCasesLoading] = useState(true);
   const [soapFb, triggerSoapFb] = useFeedback();
 
-  const submitCaseComment = (caseId) => {
+  const loadCases = async () => {
+    const { data, error } = await supabase
+      .from("soap_cases")
+      .select("*, profiles:author_id(full_name,specialty)")
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if(error){ console.error(error); setCasesLoading(false); return; }
+    setCases((data||[]).map(mapCaseRow));
+    setCasesLoading(false);
+  };
+  useEffect(() => { loadCases(); }, []);
+
+  const openCase = async (c) => {
+    setSel(c);
+    if(!caseComments[c.id]){
+      const { data, error } = await supabase
+        .from("soap_case_comments")
+        .select("id, text, created_at, profiles:author_id(full_name)")
+        .eq("case_id", c.id)
+        .order("created_at", { ascending: true });
+      if(error){ console.error(error); return; }
+      setCaseComments(prev=>({...prev,[c.id]:(data||[]).map(cm=>({
+        id: cm.id,
+        user: { name: cm.profiles?.full_name || "Utilizador", avatar: initialsOf(cm.profiles?.full_name) },
+        text: cm.text,
+        time: timeAgo(cm.created_at),
+      }))}));
+    }
+  };
+
+  const submitCaseComment = async (caseId) => {
     const text = (caseInputs[caseId]||"").trim();
     if(!text) return;
-    setCaseComments(prev=>({...prev,[caseId]:[...(prev[caseId]||[]),{id:Date.now(),user:me,text,time:"agora"}]}));
     setCaseInputs(prev=>({...prev,[caseId]:""}));
+    const { data, error } = await supabase.from("soap_case_comments").insert({ case_id: caseId, author_id: me.id, text }).select().single();
+    if(error){ console.error(error); return; }
+    setCaseComments(prev=>({...prev,[caseId]:[...(prev[caseId]||[]),{id:data.id,user:me,text,time:"agora"}]}));
     setCases(prev=>prev.map(c=>c.id===caseId?{...c,replies:c.replies+1}:c));
   };
+
+  const createCase = async () => {
+    if(!newCase.title.trim()) return;
+    const parts = newCase.meta.split("·").map(s=>s.trim());
+    const { data, error } = await supabase.from("soap_cases").insert({
+      author_id: me.id,
+      title: newCase.title.trim(),
+      species: parts[0]||"", breed: parts[1]||"", age: parts[2]||"", sex: parts[3]||"",
+      subjective: newCase.S, objective: newCase.O, assessment: newCase.A, plan: newCase.P,
+    }).select().single();
+    if(error){ console.error(error); return; }
+    setCases(prev=>[mapCaseRow({...data, profiles:{full_name:me.name,specialty:me.spec}}), ...prev]);
+    setNewCase({title:"",meta:"",S:"",O:"",A:"",P:""});
+    setNewCaseOpen(false);
+  };
+
   if(sel) return (
     <div>
       <button onClick={()=>setSel(null)} style={{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",color:C.teal,fontWeight:600,marginBottom:16,fontSize:13}}><Icon d={ic.back} size={16} color={C.teal}/> Voltar</button>
@@ -3382,26 +3638,15 @@ function SOAPCases({ C, t, isMobile, me }) {
           ))}
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:8}}>
             <button onClick={()=>{setNewCaseOpen(false);setNewCase({title:"",meta:"",S:"",O:"",A:"",P:""}); }} style={btn(C,"outline",true)}>Cancelar</button>
-            <button onClick={()=>{
-              if(!newCase.title.trim()) return;
-              const meta = newCase.meta;
-              const parts = meta.split("·").map(s=>s.trim());
-              setCases(prev=>[{
-                id:Date.now(), user:me, title:newCase.title,
-                species:parts[0]||"nd", breed:parts[1]||"",
-                age:parts[2]||"nd", sex:parts[3]||"nd",
-                date:"agora", status:"Em discussão", replies:0,
-                S:newCase.S, O:newCase.O, A:newCase.A, P:newCase.P
-              },...prev]);
-              setNewCase({title:"",meta:"",S:"",O:"",A:"",P:""});
-              setNewCaseOpen(false);
-            }} disabled={!newCase.title.trim()}
+            <button onClick={createCase} disabled={!newCase.title.trim()}
               style={{...btn(C,"primary",true),opacity:!newCase.title.trim()?0.5:1}}>✓ Publicar Caso</button>
           </div>
         </div>
       )}
+      {casesLoading&&<div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:13}}>A carregar casos…</div>}
+      {!casesLoading&&cases.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:13}}>Ainda não há casos partilhados.</div>}
       {cases.map(c=>(
-        <div key={c.id} onClick={()=>setSel(c)} style={{...card(C,{marginBottom:12,cursor:"pointer"})}}>
+        <div key={c.id} onClick={()=>openCase(c)} style={{...card(C,{marginBottom:12,cursor:"pointer"})}}>
           <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10}}>
             <div style={ava(C,38,c.user.online)}>{c.user.avatar}</div>
             <div style={{flex:1}}>
