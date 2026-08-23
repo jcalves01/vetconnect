@@ -174,22 +174,6 @@ const USERS = [
   {id:5,name:"Dr. João Neves",spec:"Imagiologia",avatar:"JN",country:"Portugal",license:"OMV-7712",followers:788,following:312,online:true,verified:true,rep:4.6,interests:["Imagiologia"]},
 ];
 const SPECIALTIES = ["Medicina Interna","Cirurgia","Dermatologia","Oncologia","Imagiologia","Cardiologia","Neurologia","Ortopedia","Oftalmologia","Anestesia","Medicina de Urgência","Medicina Preventiva","Nutrição Clínica","Reprodução","Exóticos"];
-const POSTS = [
-  {id:1,user:USERS[0],time:"há 2h",type:"clinical",content:"Caso clínico: Golden Retriever ♂ 7 anos, PU/PD marcada há 3 semanas. Ecografia revelou nódulos adrenais bilaterais de 1,2 e 0,8cm. Cortisol basal 8,2 µg/dL. Hiperadrenocorticismo atípico a considerar? #MedicinaInterna #CasoClinico",likes:47,comments:12,tags:["MedicinaInterna","CasoClinico"]},
-  {id:2,user:USERS[1],time:"há 5h",type:"post",content:"Técnica de laparoscopia minimamente invasiva para esplenectomia em gatos. 24 casos — recuperação 40% mais rápida vs técnica aberta! 🔬 #Cirurgia #Inovação",likes:134,comments:28,tags:["Cirurgia","Inovação"]},
-  {id:3,user:USERS[2],time:"há 1d",type:"event",content:"Workshop de Dermatologia — Lisboa, 15 Jul. Vagas limitadas! Atopia canina, otites recorrentes e dermatofitoses. 6 créditos CPD. Inscrições abertas.",likes:89,comments:19,tags:["Workshop","Dermatologia"]},
-];
-const GROUPS = [
-  {id:1,name:"Oncologia UCL",members:12,last:"Dr. Pedro: novo protocolo…",unread:3,avatar:"🎗️"},
-  {id:2,name:"Caso #1234 — Equipa",members:4,last:"Dra. Ana: ecografia hoje…",unread:1,avatar:"🔬"},
-];
-const NOTIFS = [
-  {id:1,type:"like",user:"Dr. Rui Santos",action:"gostou da sua publicação",target:"Caso clínico: Golden Retriever…",time:"há 5 min",read:false,avatar:"RS",color:"#E05C6A"},
-  {id:2,type:"comment",user:"Dra. Marta Lima",action:"comentou na sua publicação",target:'"Excelente abordagem!"',time:"há 18 min",read:false,avatar:"ML",color:"#0D7377"},
-  {id:3,type:"follow",user:"Dr. Pedro Costa",action:"começou a seguir-vos",target:"",time:"há 1h",read:false,avatar:"PC",color:"#6C3FC7"},
-  {id:4,type:"live",user:"VetConnect",action:"Congresso ao vivo a começar",target:"Endocrinologia Felina",time:"há 2h",read:true,avatar:"VC",color:"#E8A838"},
-  {id:5,type:"match",user:"HV das Laranjeiras",action:"nova vaga compatível com o seu perfil",target:"Veterinário Medicina Interna",time:"há 3h",read:true,avatar:"HV",color:"#27AE60"},
-];
 const LIVE_EVENTS = [
   {id:1,title:"Congresso Nacional de Medicina Veterinária 2024",speaker:"Vários Oradores",speakerAvatar:"CN",date:"Hoje, 14:00",duration:"3h",viewers:1847,status:"live",price:"Gratuito",tags:["Congresso"],icon:"🏛️",slideTitle:"Avanços em Medicina Veterinária 2024",slideSubtitle:"Mesa redonda: Diagnóstico por imagem e terapêutica minimamente invasiva",program:"14:00 Abertura · 14:30 Imagiologia · 15:30 Cirurgia · 16:30 Mesa Redonda",cpd:4},
   {id:2,title:"Palestra: Endocrinologia Felina — Casos Clínicos",speaker:"Dra. Ana Ferreira",speakerAvatar:"AF",date:"Hoje, 18:00",duration:"1h30",viewers:423,status:"live",price:"Gratuito",tags:["Endocrinologia"],icon:"🐱",slideTitle:"Hipertiroidismo Felino",slideSubtitle:"Diagnóstico diferencial e opções terapêuticas",program:"18:00 Intro · 18:20 Diagnóstico · 19:00 Tratamento · 19:20 Q&A",cpd:2},
@@ -682,21 +666,27 @@ function SearchHub({ query, onClose, C, t, setMainTab }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // NOTIFICATIONS
 // ══════════════════════════════════════════════════════════════════════════════
-function NotifPanel({ onClose, C, t, isMobile, notifs, setNotifs, setMainTab }) {
+function NotifPanel({ onClose, C, t, isMobile, notifs, setNotifs, setMainTab, meId }) {
   const [filter, setFilter] = useState("all");
-  const markRead = id => setNotifs(ns=>ns.map(x=>x.id===id?{...x,read:true}:x));
-  const markAll = () => setNotifs(n=>n.map(x=>({...x,read:true})));
-  const dismiss = id => setNotifs(n=>n.filter(x=>x.id!==id));
+  const markRead = id => {
+    setNotifs(ns=>ns.map(x=>x.id===id?{...x,read:true}:x));
+    supabase.from("notifications").update({ read:true }).eq("id", id).then(({error})=>{ if(error) console.error(error); });
+  };
+  const markAll = () => {
+    setNotifs(n=>n.map(x=>({...x,read:true})));
+    supabase.from("notifications").update({ read:true }).eq("recipient_id", meId).eq("read", false).then(({error})=>{ if(error) console.error(error); });
+  };
+  const dismiss = id => {
+    setNotifs(n=>n.filter(x=>x.id!==id));
+    supabase.from("notifications").delete().eq("id", id).then(({error})=>{ if(error) console.error(error); });
+  };
   const unread = notifs.filter(n=>!n.read).length;
   const filtered = filter==="unread"?notifs.filter(n=>!n.read):notifs;
-  const notifIcons = {like:"❤️",comment:"💬",follow:"👤",live:"📡",match:"💼",msg:"✉️",job:"💼",ai:"🧠"};
+  const notifIcons = {like:"❤️",comment:"💬",case_comment:"🩺",msg:"✉️"};
 
   const TAB_MAP = {
-    like:"home", comment:"home", follow:"home",
+    like:"home", comment:"home", case_comment:"clinic",
     msg:"community",
-    live:"learn",
-    match:"market", job:"market",
-    ai:"clinic",
   };
 
   const handleClick = (n) => {
@@ -1254,17 +1244,20 @@ function Community({ C, t, isMobile, me }) {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupMembers, setNewGroupMembers] = useState([]);
   const [newGroupSearch, setNewGroupSearch] = useState("");
-  const [groups, setGroups] = useState(GROUPS);
+  const [newGroupResults, setNewGroupResults] = useState([]);
+  const [newGroupSearchLoading, setNewGroupSearchLoading] = useState(false);
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupMembers, setGroupMembers] = useState([]); // participants of the currently open group
   const [newMeetingOpen, setNewMeetingOpen] = useState(false);
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
   const [newMeetingDate, setNewMeetingDate] = useState("");
   const [newMeetingMembers, setNewMeetingMembers] = useState([]);
   const [newMeetingSearch, setNewMeetingSearch] = useState("");
-  const [meetings, setMeetings] = useState([
-    {id:1,title:"Webinar: Endocrinologia Felina",host:"Dra. Ana Ferreira",date:"20 Jun, 18:00",type:"Webinar",participants:234},
-    {id:2,title:"Reunião de Caso — Oncologia",host:"Dr. Pedro Costa",date:"22 Jun, 17:00",type:"Reunião",participants:8},
-  ]);
-  const COMMUNITY_USERS = USERS.filter(u=>u.id!==1);
+  const [newMeetingResults, setNewMeetingResults] = useState([]);
+  const [newMeetingSearchLoading, setNewMeetingSearchLoading] = useState(false);
+  const [meetings, setMeetings] = useState([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(true);
   const toggleMember = (id, list, setList) =>
     setList(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
   const [videoRoomUrl, setVideoRoomUrl] = useState(null);
@@ -1278,6 +1271,7 @@ function Community({ C, t, isMobile, me }) {
 
   const mapMessageRow = (m) => ({
     id: m.id,
+    authorId: m.author_id,
     from: m.author_id===me.id ? "me" : "them",
     text: m.text,
     type: m.attachment_type || undefined,
@@ -1286,49 +1280,75 @@ function Community({ C, t, isMobile, me }) {
     time: timeAgo(m.created_at),
   });
 
-  const loadConversations = async () => {
-    setConversationsLoading(true);
+  // Loads both 1:1 conversations and group threads in one pass — they're
+  // the same `conversations` table, split client-side by `is_group`.
+  const loadThreads = async () => {
+    setConversationsLoading(true); setGroupsLoading(true);
     const { data: parts, error } = await supabase
       .from("conversation_participants")
       .select("conversation_id")
       .eq("user_id", me.id);
-    if(error){ console.error(error); setConversationsLoading(false); return; }
+    if(error){ console.error(error); setConversationsLoading(false); setGroupsLoading(false); return; }
     const convIds = (parts||[]).map(p=>p.conversation_id);
-    if(convIds.length===0){ setConversations([]); setConversationsLoading(false); return; }
-    const { data: others, error: err2 } = await supabase
+    if(convIds.length===0){ setConversations([]); setGroups([]); setConversationsLoading(false); setGroupsLoading(false); return; }
+    const { data: convRows, error: err1 } = await supabase
+      .from("conversations")
+      .select("id, is_group, name, avatar")
+      .in("id", convIds);
+    if(err1){ console.error(err1); setConversationsLoading(false); setGroupsLoading(false); return; }
+    const { data: allParts, error: err2 } = await supabase
       .from("conversation_participants")
       .select("conversation_id, profiles:user_id(id,full_name,specialty)")
-      .in("conversation_id", convIds)
-      .neq("user_id", me.id);
-    if(err2){ console.error(err2); setConversationsLoading(false); return; }
+      .in("conversation_id", convIds);
+    if(err2) console.error(err2);
     const { data: lastMsgs } = await supabase
       .from("messages")
-      .select("conversation_id, text, created_at")
+      .select("conversation_id, text, attachment_type, created_at")
       .in("conversation_id", convIds)
       .order("created_at", { ascending: false });
     const lastByConv = {};
     (lastMsgs||[]).forEach(m=>{ if(!lastByConv[m.conversation_id]) lastByConv[m.conversation_id]=m; });
-    const list = (others||[]).map(o=>({
-      id: o.conversation_id,
-      user: {
-        id: o.profiles?.id,
-        name: o.profiles?.full_name || "Utilizador",
-        avatar: initialsOf(o.profiles?.full_name),
-        spec: o.profiles?.specialty || "",
-        online: false,
-      },
-      last: lastByConv[o.conversation_id]?.text || "Conversa iniciada",
-      time: lastByConv[o.conversation_id] ? timeAgo(lastByConv[o.conversation_id].created_at) : "",
-      unread: 0,
-    })).sort((a,b)=>(lastByConv[b.id]?.created_at||"").localeCompare(lastByConv[a.id]?.created_at||""));
-    setConversations(list);
-    setConversationsLoading(false);
+    const partsByConv = {};
+    (allParts||[]).forEach(p=>{ (partsByConv[p.conversation_id] ||= []).push(p.profiles); });
+
+    const dmList = [], groupList = [];
+    (convRows||[]).forEach(c=>{
+      const last = lastByConv[c.id];
+      const lastText = last ? (last.text || (last.attachment_type ? "📎 anexo" : "")) : (c.is_group ? "Grupo criado" : "Conversa iniciada");
+      const lastTime = last ? timeAgo(last.created_at) : "";
+      if(c.is_group){
+        groupList.push({
+          id: c.id, isGroup: true, name: c.name||"Grupo", avatar: c.avatar||"👥",
+          members: (partsByConv[c.id]||[]).length, last: lastText, time: lastTime, unread: 0,
+        });
+      } else {
+        const other = (partsByConv[c.id]||[]).find(p=>p && p.id!==me.id);
+        dmList.push({
+          id: c.id, isGroup: false,
+          user: { id: other?.id, name: other?.full_name||"Utilizador", avatar: initialsOf(other?.full_name), spec: other?.specialty||"", online: false },
+          last: lastText, time: lastTime, unread: 0,
+        });
+      }
+    });
+    const byRecency = (a,b) => (lastByConv[b.id]?.created_at||"").localeCompare(lastByConv[a.id]?.created_at||"");
+    dmList.sort(byRecency); groupList.sort(byRecency);
+    setConversations(dmList); setGroups(groupList);
+    setConversationsLoading(false); setGroupsLoading(false);
   };
-  useEffect(() => { loadConversations(); }, [me.id]);
+  useEffect(() => { loadThreads(); }, [me.id]);
 
   const openConversation = async (conv) => {
     setSel(conv);
     setMessagesLoading(true);
+    if(conv.isGroup){
+      const { data: gp } = await supabase
+        .from("conversation_participants")
+        .select("profiles:user_id(id,full_name)")
+        .eq("conversation_id", conv.id);
+      setGroupMembers((gp||[]).map(p=>p.profiles).filter(Boolean));
+    } else {
+      setGroupMembers([]);
+    }
     const { data, error } = await supabase
       .from("messages")
       .select("id, author_id, text, attachment_type, attachment_url, attachment_name, created_at")
@@ -1367,7 +1387,7 @@ function Community({ C, t, isMobile, me }) {
     const { data: convId, error } = await supabase.rpc("get_or_create_dm", { other_user_id: otherUser.id });
     if(error){ console.error(error); return; }
     const conv = {
-      id: convId,
+      id: convId, isGroup: false,
       user: { id: otherUser.id, name: otherUser.full_name||"Utilizador", avatar: initialsOf(otherUser.full_name), spec: otherUser.specialty||"", online:false },
       last: "", time: "", unread: 0,
     };
@@ -1376,16 +1396,100 @@ function Community({ C, t, isMobile, me }) {
     openConversation(conv);
   };
 
+  // Debounced colleague search shared shape for the group + meeting invite pickers.
+  useEffect(() => {
+    if(!newGroupOpen) return;
+    setNewGroupSearchLoading(true);
+    const handle = setTimeout(async () => {
+      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).limit(20);
+      if(newGroupSearch.trim()) query = query.ilike("full_name", `%${newGroupSearch.trim()}%`);
+      const { data, error } = await query;
+      if(!error) setNewGroupResults(data||[]);
+      setNewGroupSearchLoading(false);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [newGroupOpen, newGroupSearch, me.id]);
+
+  useEffect(() => {
+    if(!newMeetingOpen) return;
+    setNewMeetingSearchLoading(true);
+    const handle = setTimeout(async () => {
+      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).limit(20);
+      if(newMeetingSearch.trim()) query = query.ilike("full_name", `%${newMeetingSearch.trim()}%`);
+      const { data, error } = await query;
+      if(!error) setNewMeetingResults(data||[]);
+      setNewMeetingSearchLoading(false);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [newMeetingOpen, newMeetingSearch, me.id]);
+
+  const createGroup = async () => {
+    if(!newGroupName.trim()) return;
+    const { data: conv, error } = await supabase
+      .from("conversations")
+      .insert({ created_by: me.id, is_group: true, name: newGroupName.trim(), avatar: "👥" })
+      .select().single();
+    if(error){ console.error(error); return; }
+    const rows = [{ conversation_id: conv.id, user_id: me.id }, ...newGroupMembers.map(uid=>({ conversation_id: conv.id, user_id: uid }))];
+    const { error: err2 } = await supabase.from("conversation_participants").insert(rows);
+    if(err2){ console.error(err2); return; }
+    setGroups(prev=>[{ id: conv.id, isGroup:true, name: conv.name, avatar: conv.avatar, members: newGroupMembers.length+1, last:"Grupo criado", time:"agora", unread:0 }, ...prev]);
+    setNewGroupName(""); setNewGroupMembers([]); setNewGroupSearch(""); setNewGroupOpen(false);
+  };
+
+  const mapMeetingRow = (row, count) => ({
+    id: row.id,
+    title: row.title,
+    host: row.host?.full_name || "Utilizador",
+    date: row.scheduled_at ? new Date(row.scheduled_at).toLocaleString("pt-PT",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) : "A definir",
+    scheduledAt: row.scheduled_at,
+    type: row.type,
+    participants: count,
+  });
+
+  const loadMeetings = async () => {
+    setMeetingsLoading(true);
+    const { data, error } = await supabase
+      .from("meetings")
+      .select("*, host:host_id(full_name), meeting_participants(user_id)")
+      .order("scheduled_at", { ascending: true, nullsFirst: false });
+    if(error){ console.error(error); setMeetingsLoading(false); return; }
+    setMeetings((data||[]).map(row=>mapMeetingRow(row, (row.meeting_participants||[]).length)));
+    setMeetingsLoading(false);
+  };
+  useEffect(() => { loadMeetings(); }, []);
+
+  const createMeeting = async () => {
+    if(!newMeetingTitle.trim()) return;
+    const scheduledAt = newMeetingDate ? new Date(newMeetingDate).toISOString() : null;
+    const { data: meeting, error } = await supabase
+      .from("meetings")
+      .insert({ host_id: me.id, title: newMeetingTitle.trim(), scheduled_at: scheduledAt, type: "Reunião" })
+      .select().single();
+    if(error){ console.error(error); return; }
+    const rows = [{ meeting_id: meeting.id, user_id: me.id }, ...newMeetingMembers.map(uid=>({ meeting_id: meeting.id, user_id: uid }))];
+    const { error: err2 } = await supabase.from("meeting_participants").insert(rows);
+    if(err2) console.error(err2);
+    setMeetings(prev=>[mapMeetingRow({ ...meeting, host:{full_name:me.name} }, newMeetingMembers.length+1), ...prev]);
+    setNewMeetingTitle(""); setNewMeetingDate(""); setNewMeetingMembers([]); setNewMeetingSearch(""); setNewMeetingOpen(false);
+  };
+
+  // A sent message updates whichever list (DM or group) the open thread belongs to.
+  const updateThreadPreview = (id, patch) => {
+    setConversations(prev=>prev.map(c=>c.id===id?{...c,...patch}:c));
+    setGroups(prev=>prev.map(g=>g.id===id?{...g,...patch}:g));
+  };
+
   const sendMsg = async () => {
     if(!input.trim()||!sel) return;
     const text = input.trim();
     setInput("");
     const tempId = `tmp-${Date.now()}`;
-    setMessages(c=>[...c,{id:tempId,from:"me",text,time:now()}]);
+    setMessages(c=>[...c,{id:tempId,authorId:me.id,from:"me",text,time:now()}]);
     const { data, error } = await supabase.from("messages").insert({ conversation_id: sel.id, author_id: me.id, text }).select().single();
     if(error){ console.error(error); return; }
     setMessages(prev=>prev.map(m=>m.id===tempId?{...m,id:data.id}:m));
-    setConversations(prev=>prev.map(c=>c.id===sel.id?{...c,last:text,time:"agora"}:c));
+    updateThreadPreview(sel.id, { last:text, time:"agora" });
   };
   const handleFile = async (e, type) => {
     const f=e.target.files?.[0]; if(!f||!sel)return;
@@ -1396,7 +1500,7 @@ function Community({ C, t, isMobile, me }) {
     const previewUrl=(isImg||isVid)?URL.createObjectURL(f):null;
     const msgType=isImg?"image":isVid?"video":"document";
     const tempId = `tmp-${Date.now()}`;
-    setMessages(c=>[...c,{id:tempId,from:"me",type:msgType,fileName:f.name,fileSize:size,previewUrl,time:now()}]);
+    setMessages(c=>[...c,{id:tempId,authorId:me.id,from:"me",type:msgType,fileName:f.name,fileSize:size,previewUrl,time:now()}]);
     try {
       const path = `${me.id}/messages/${Date.now()}-${f.name}`;
       const { error: upErr } = await supabase.storage.from("post-media").upload(path, f);
@@ -1408,7 +1512,7 @@ function Community({ C, t, isMobile, me }) {
       }).select().single();
       if(error) throw error;
       setMessages(prev=>prev.map(m=>m.id===tempId?{...m,id:data.id,previewUrl:pub.publicUrl}:m));
-      setConversations(prev=>prev.map(c=>c.id===sel.id?{...c,last:`📎 ${f.name}`,time:"agora"}:c));
+      updateThreadPreview(sel.id, { last:`📎 ${f.name}`, time:"agora" });
     } catch(err) {
       console.error(err);
     }
@@ -1492,7 +1596,7 @@ function Community({ C, t, isMobile, me }) {
         ))}
       </div>
 
-      {sub==="messages"&&(
+      {(sub==="messages"||sub==="groups")&&(
         <div style={{flex:1,display:"flex",background:C.surface,borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,position:"relative"}}>
           {previewImg&&(
             <div onClick={()=>setPreviewImg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:600,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
@@ -1502,69 +1606,144 @@ function Community({ C, t, isMobile, me }) {
           )}
           {showList&&(
             <div style={{width:isMobile?"100%":270,borderRight:isMobile?"none":`1px solid ${C.border}`,display:"flex",flexDirection:"column"}}>
-              <div style={{padding:14,borderBottom:`1px solid ${C.border}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div style={{fontWeight:700,fontSize:15,color:C.text}}>{t("messages")}</div>
-                  <button onClick={()=>setNewDmOpen(v=>!v)} aria-label="Nova conversa"
-                    style={{background:newDmOpen?C.mint:C.bg,border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:13,fontWeight:700,color:C.teal}}>✉️+</button>
-                </div>
-                <SearchBar
-                  value={msgSearch}
-                  onChange={v=>{setMsgSearch(v);setMsgSearchActive(!!v);}}
-                  onSearch={v=>{setMsgSearch(v);setMsgSearchActive(!!v);}}
-                  placeholder={t("search_placeholder")}
-                  C={C}
-                />
-              </div>
-              {newDmOpen&&(
-                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.bg}}>
-                  <input value={newDmSearch} onChange={e=>setNewDmSearch(e.target.value)}
-                    placeholder={"🔍 "+t("search_colleagues")} style={{...inp(C),fontSize:12,marginBottom:8}}/>
-                  <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:180,overflowY:"auto"}}>
-                    {newDmLoading&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>A procurar…</div>}
-                    {!newDmLoading&&newDmResults.length===0&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>Sem colegas encontrados.</div>}
-                    {newDmResults.map(u=>(
-                      <div key={u.id} onClick={()=>startConversation(u)} role="button"
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:8,cursor:"pointer",background:C.surface}}>
-                        <div style={{...ava(C,28),flexShrink:0}}>{initialsOf(u.full_name)}</div>
+              {sub==="messages"?(
+                <>
+                  <div style={{padding:14,borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                      <div style={{fontWeight:700,fontSize:15,color:C.text}}>{t("messages")}</div>
+                      <button onClick={()=>setNewDmOpen(v=>!v)} aria-label="Nova conversa"
+                        style={{background:newDmOpen?C.mint:C.bg,border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:13,fontWeight:700,color:C.teal}}>✉️+</button>
+                    </div>
+                    <SearchBar
+                      value={msgSearch}
+                      onChange={v=>{setMsgSearch(v);setMsgSearchActive(!!v);}}
+                      onSearch={v=>{setMsgSearch(v);setMsgSearchActive(!!v);}}
+                      placeholder={t("search_placeholder")}
+                      C={C}
+                    />
+                  </div>
+                  {newDmOpen&&(
+                    <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.bg}}>
+                      <input value={newDmSearch} onChange={e=>setNewDmSearch(e.target.value)}
+                        placeholder={"🔍 "+t("search_colleagues")} style={{...inp(C),fontSize:12,marginBottom:8}}/>
+                      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:180,overflowY:"auto"}}>
+                        {newDmLoading&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>A procurar…</div>}
+                        {!newDmLoading&&newDmResults.length===0&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>Sem colegas encontrados.</div>}
+                        {newDmResults.map(u=>(
+                          <div key={u.id} onClick={()=>startConversation(u)} role="button"
+                            style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:8,cursor:"pointer",background:C.surface}}>
+                            <div style={{...ava(C,28),flexShrink:0}}>{initialsOf(u.full_name)}</div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.full_name||"Utilizador"}</div>
+                              <div style={{fontSize:10,color:C.sub}}>{u.specialty||""}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{overflowY:"auto",flex:1}}>
+                    {conversationsLoading&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>A carregar…</div>}
+                    {!conversationsLoading&&filteredConversations.length===0&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>{msgSearchActive&&msgSearch.trim()?`Sem resultados para "${msgSearch}"`:"Ainda sem conversas — use ✉️+ para começar."}</div>}
+                    {filteredConversations.map(c=>(
+                      <div key={c.id} onClick={()=>openConversation(c)} role="button"
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer",background:sel?.id===c.id?C.mint:"transparent",borderBottom:`1px solid ${C.border}`,transition:"background .15s"}}>
+                        <div style={ava(C,38,c.user.online)}>{c.user.avatar}</div>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.full_name||"Utilizador"}</div>
-                          <div style={{fontSize:10,color:C.sub}}>{u.specialty||""}</div>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <div style={{fontWeight:600,fontSize:13,color:C.text}}>{c.user.name}</div>
+                            <div style={{fontSize:11,color:C.sub}}>{c.time}</div>
+                          </div>
+                          <div style={{fontSize:12,color:C.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.last}</div>
                         </div>
+                        {c.unread>0&&<div style={{background:C.teal,color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{c.unread}</div>}
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-              <div style={{overflowY:"auto",flex:1}}>
-                {conversationsLoading&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>A carregar…</div>}
-                {!conversationsLoading&&filteredConversations.length===0&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>{msgSearchActive&&msgSearch.trim()?`Sem resultados para "${msgSearch}"`:"Ainda sem conversas — use ✉️+ para começar."}</div>}
-                {filteredConversations.map(c=>(
-                  <div key={c.id} onClick={()=>openConversation(c)} role="button"
-                    style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer",background:sel?.id===c.id?C.mint:"transparent",borderBottom:`1px solid ${C.border}`,transition:"background .15s"}}>
-                    <div style={ava(C,38,c.user.online)}>{c.user.avatar}</div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between"}}>
-                        <div style={{fontWeight:600,fontSize:13,color:C.text}}>{c.user.name}</div>
-                        <div style={{fontSize:11,color:C.sub}}>{c.time}</div>
-                      </div>
-                      <div style={{fontSize:12,color:C.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.last}</div>
+                </>
+              ):(
+                <>
+                  <div style={{padding:14,borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{fontWeight:700,fontSize:15,color:C.text}}>Grupos</div>
+                      <button onClick={()=>setNewGroupOpen(v=>!v)} aria-label="Novo grupo"
+                        style={{background:newGroupOpen?C.mint:C.bg,border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:13,fontWeight:700,color:C.teal}}>👥+</button>
                     </div>
-                    {c.unread>0&&<div style={{background:C.teal,color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{c.unread}</div>}
                   </div>
-                ))}
-              </div>
+                  {newGroupOpen&&(
+                    <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:C.bg,maxHeight:"60vh",overflowY:"auto"}}>
+                      <input value={newGroupName} onChange={e=>setNewGroupName(e.target.value)}
+                        placeholder={t("group_name")+"…"} style={{...inp(C),fontSize:13,marginBottom:10}}/>
+                      <label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:6}}>ADICIONAR MEMBROS</label>
+                      <input value={newGroupSearch} onChange={e=>setNewGroupSearch(e.target.value)}
+                        placeholder={"🔍 "+t("search_colleagues")} style={{...inp(C),fontSize:12,marginBottom:8}}/>
+                      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:160,overflowY:"auto",marginBottom:8}}>
+                        {newGroupSearchLoading&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>A procurar…</div>}
+                        {!newGroupSearchLoading&&newGroupResults.length===0&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>Sem colegas encontrados.</div>}
+                        {newGroupResults.map(u=>{
+                          const isSel = newGroupMembers.includes(u.id);
+                          return (
+                            <div key={u.id} onClick={()=>toggleMember(u.id,newGroupMembers,setNewGroupMembers)} role="button"
+                              style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:8,cursor:"pointer",
+                                background:isSel?C.mint:C.surface,border:`1px solid ${isSel?C.teal:C.border}`,transition:"all .12s"}}>
+                              <div style={{...ava(C,28),flexShrink:0}}>{initialsOf(u.full_name)}</div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:12,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.full_name||"Utilizador"}</div>
+                                <div style={{fontSize:10,color:C.sub}}>{u.specialty||""}</div>
+                              </div>
+                              <div style={{width:18,height:18,borderRadius:"50%",border:`2px solid ${isSel?C.teal:C.border}`,
+                                background:isSel?C.teal:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                {isSel&&<span style={{color:"#fff",fontSize:10,lineHeight:1}}>✓</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                        <button onClick={()=>{setNewGroupOpen(false);setNewGroupName("");setNewGroupMembers([]);setNewGroupSearch("");}} style={{...btn(C,"outline",true),fontSize:11}}>Cancelar</button>
+                        <button onClick={createGroup} disabled={!newGroupName.trim()}
+                          style={{...btn(C,"primary",true),fontSize:11,opacity:!newGroupName.trim()?0.5:1}}>
+                          Criar ({newGroupMembers.length+1})
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{overflowY:"auto",flex:1}}>
+                    {groupsLoading&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>A carregar…</div>}
+                    {!groupsLoading&&groups.length===0&&<div style={{padding:"20px 14px",textAlign:"center",color:C.sub,fontSize:13}}>Ainda sem grupos — use 👥+ para criar um.</div>}
+                    {groups.map(g=>(
+                      <div key={g.id} onClick={()=>openConversation(g)} role="button"
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer",background:sel?.id===g.id?C.mint:"transparent",borderBottom:`1px solid ${C.border}`,transition:"background .15s"}}>
+                        <div style={{width:38,height:38,borderRadius:"50%",background:C.mint,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}}>{g.avatar}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <div style={{fontWeight:600,fontSize:13,color:C.text}}>{g.name}</div>
+                            <div style={{fontSize:11,color:C.sub}}>{g.time}</div>
+                          </div>
+                          <div style={{fontSize:11,color:C.sub}}>{g.members} membros</div>
+                          <div style={{fontSize:12,color:C.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.last}</div>
+                        </div>
+                        {g.unread>0&&<div style={{background:C.teal,color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{g.unread}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
           {showChat&&(sel?(
             <div style={{flex:1,display:"flex",flexDirection:"column",position:"relative"}}>
               <div style={{padding:isMobile?"10px 12px":"12px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10,background:C.surface,flexShrink:0}}>
                 {isMobile&&<button onClick={()=>setSel(null)} style={{background:"none",border:"none",cursor:"pointer",padding:4}} aria-label="Voltar"><Icon d={ic.back} size={20} color={C.sub}/></button>}
-                <div style={ava(C,34,sel.user.online)}>{sel.user.avatar}</div>
+                {sel.isGroup?(
+                  <div style={{width:34,height:34,borderRadius:"50%",background:C.mint,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{sel.avatar}</div>
+                ):(
+                  <div style={ava(C,34,sel.user.online)}>{sel.user.avatar}</div>
+                )}
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>{sel.user.name}</div>
-                  <div style={{fontSize:11,color:sel.user.online?C.emerald:C.sub}}>
-                    {sel.user.online?t("online"):t("offline")}
+                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>{sel.isGroup?sel.name:sel.user.name}</div>
+                  <div style={{fontSize:11,color:sel.isGroup?C.sub:(sel.user.online?C.emerald:C.sub)}}>
+                    {sel.isGroup?`${sel.members} membros`:(sel.user.online?t("online"):t("offline"))}
                   </div>
                 </div>
                 <button onClick={()=>setCall(!call)} style={{...btn(C,call?"danger":"outline",true),fontSize:11}}><Icon d={ic.phone} size={13}/>{!isMobile&&(call?"Terminar":"Chamar")}</button>
@@ -1575,8 +1754,8 @@ function Community({ C, t, isMobile, me }) {
               </div>
               {call&&(
                 <div style={{background:C.night,padding:"22px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:12,flexShrink:0}}>
-                  <div style={ava(C,60,true)}>{sel.user.avatar}</div>
-                  <div style={{color:"#fff",fontWeight:700,fontSize:14}}>{sel.user.name}</div>
+                  <div style={ava(C,60,true)}>{sel.isGroup?sel.avatar:sel.user.avatar}</div>
+                  <div style={{color:"#fff",fontWeight:700,fontSize:14}}>{sel.isGroup?sel.name:sel.user.name}</div>
                   <div style={{color:C.mist,fontSize:12}}>Em chamada · 00:32</div>
                   <div style={{display:"flex",gap:14}}>
                     {[ic.mic,ic.cam,ic.phone].map((ico,i)=>(
@@ -1592,7 +1771,10 @@ function Community({ C, t, isMobile, me }) {
                 {messagesLoading&&<div style={{textAlign:"center",color:C.sub,fontSize:12}}>A carregar mensagens…</div>}
                 {!messagesLoading&&messages.length===0&&<div style={{textAlign:"center",color:C.sub,fontSize:12}}>Ainda sem mensagens — diga olá 👋</div>}
                 {messages.map((m,i)=>(
-                  <div key={m.id||i} style={{display:"flex",justifyContent:m.from==="me"?"flex-end":"flex-start"}}>
+                  <div key={m.id||i} style={{display:"flex",flexDirection:"column",alignItems:m.from==="me"?"flex-end":"flex-start"}}>
+                    {sel.isGroup&&m.from!=="me"&&(
+                      <div style={{fontSize:10,color:C.sub,margin:"0 4px 2px"}}>{groupMembers.find(p=>p.id===m.authorId)?.full_name||"Membro"}</div>
+                    )}
                     <Bubble m={m}/>
                   </div>
                 ))}
@@ -1630,89 +1812,10 @@ function Community({ C, t, isMobile, me }) {
             </div>
           ):(
             <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:C.sub}}>
-              <div style={{fontSize:36}}>💬</div>
-              <div style={{fontWeight:600,color:C.sub}}>{t("select_conv")}</div>
+              <div style={{fontSize:36}}>{sub==="groups"?"👥":"💬"}</div>
+              <div style={{fontWeight:600,color:C.sub}}>{sub==="groups"?"Selecione um grupo":t("select_conv")}</div>
             </div>
           ))}
-        </div>
-      )}
-
-      {sub==="groups"&&(
-        <div style={{flex:1,overflowY:"auto"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div style={{fontWeight:700,fontSize:15,color:C.text}}>Grupos de Discussão</div>
-            <button onClick={()=>setNewGroupOpen(true)} style={btn(C,"primary",true)}>+ {t("new_group")}</button>
-          </div>
-          {newGroupOpen&&(
-            <div style={{...card(C),border:`1.5px solid ${C.teal}`,marginBottom:14}}>
-              <div style={{fontWeight:700,fontSize:13,color:C.teal,marginBottom:10}}>Novo Grupo</div>
-              <input value={newGroupName} onChange={e=>setNewGroupName(e.target.value)}
-                placeholder={t("group_name")+"…"} style={{...inp(C),fontSize:13,marginBottom:12}}/>
-
-              {/* Member picker */}
-              <div style={{marginBottom:10}}>
-                <label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:6}}>ADICIONAR MEMBROS</label>
-                <input value={newGroupSearch} onChange={e=>setNewGroupSearch(e.target.value)}
-                  placeholder={"🔍 "+t("search_colleagues")} style={{...inp(C),fontSize:12,marginBottom:8}}/>
-                <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:160,overflowY:"auto"}}>
-                  {COMMUNITY_USERS.filter(u=>
-                    !newGroupSearch||u.name.toLowerCase().includes(newGroupSearch.toLowerCase())||u.spec.toLowerCase().includes(newGroupSearch.toLowerCase())
-                  ).map(u=>{
-                    const sel = newGroupMembers.includes(u.id);
-                    return (
-                      <div key={u.id} onClick={()=>toggleMember(u.id,newGroupMembers,setNewGroupMembers)}
-                        style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",
-                          background:sel?C.mint:C.bg,border:`1px solid ${sel?C.teal:C.border}`,transition:"all .12s"}}>
-                        <div style={{...ava(C,32,u.online),flexShrink:0}}>{u.avatar}</div>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,fontWeight:700,color:C.text}}>{u.name}</div>
-                          <div style={{fontSize:10,color:C.sub}}>{u.spec}</div>
-                        </div>
-                        <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${sel?C.teal:C.border}`,
-                          background:sel?C.teal:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                          {sel&&<span style={{color:"#fff",fontSize:11,lineHeight:1}}>✓</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {newGroupMembers.length>0&&(
-                  <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:6}}>
-                    {newGroupMembers.length} {newGroupMembers.length===1?"membro selecionado":"membros selecionados"}
-                  </div>
-                )}
-              </div>
-
-              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                <button onClick={()=>{setNewGroupOpen(false);setNewGroupName("");setNewGroupMembers([]);setNewGroupSearch("");}} style={btn(C,"outline",true)}>Cancelar</button>
-                <button onClick={()=>{
-                  if(!newGroupName.trim())return;
-                  const memberNames=COMMUNITY_USERS.filter(u=>newGroupMembers.includes(u.id)).map(u=>u.name.split(" ")[1]);
-                  setGroups(g=>[...g,{id:Date.now(),name:newGroupName,members:newGroupMembers.length+1,last:"Grupo criado",unread:0,avatar:"👥",desc:`${newGroupMembers.length+1} membros`}]);
-                  setNewGroupName("");setNewGroupMembers([]);setNewGroupSearch("");setNewGroupOpen(false);
-                }} disabled={!newGroupName.trim()}
-                  style={{...btn(C,"primary",true),opacity:!newGroupName.trim()?0.5:1}}>
-                  Criar Grupo ({newGroupMembers.length+1})
-                </button>
-              </div>
-            </div>
-          )}
-          {groups.map(g=>(
-            <div key={g.id} style={{...card(C,{marginBottom:10}),display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-              <div style={{width:46,height:46,borderRadius:12,background:C.mint,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{g.avatar}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:700,fontSize:13,color:C.text}}>{g.name}</div>
-                <div style={{fontSize:11,color:C.sub}}>{g.members} membros</div>
-                <div style={{fontSize:12,color:C.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.last}</div>
-              </div>
-              {g.unread>0&&<div style={{background:C.teal,color:"#fff",borderRadius:"50%",width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700}}>{g.unread}</div>}
-            </div>
-          ))}
-          <div style={{...card(C,{marginBottom:0}),border:`2px dashed ${C.border}`,textAlign:"center",color:C.sub,cursor:"pointer",padding:"20px 18px"}}>
-            <div style={{fontSize:28,marginBottom:6}}>👥</div>
-            <div style={{fontWeight:600,fontSize:13,color:C.text,marginBottom:4}}>Criar novo grupo</div>
-            <div style={{fontSize:12}}>Para discussão de casos, equipas clínicas ou grupos de especialidade</div>
-          </div>
         </div>
       )}
 
@@ -1735,18 +1838,18 @@ function Community({ C, t, isMobile, me }) {
                 <input value={newMeetingSearch} onChange={e=>setNewMeetingSearch(e.target.value)}
                   placeholder={"🔍 "+t("search_colleagues")} style={{...inp(C),fontSize:12,marginBottom:8}}/>
                 <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:160,overflowY:"auto"}}>
-                  {COMMUNITY_USERS.filter(u=>
-                    !newMeetingSearch||u.name.toLowerCase().includes(newMeetingSearch.toLowerCase())||u.spec.toLowerCase().includes(newMeetingSearch.toLowerCase())
-                  ).map(u=>{
+                  {newMeetingSearchLoading&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>A procurar…</div>}
+                  {!newMeetingSearchLoading&&newMeetingResults.length===0&&<div style={{fontSize:12,color:C.sub,padding:"6px 0"}}>Sem colegas encontrados.</div>}
+                  {newMeetingResults.map(u=>{
                     const sel=newMeetingMembers.includes(u.id);
                     return (
                       <div key={u.id} onClick={()=>toggleMember(u.id,newMeetingMembers,setNewMeetingMembers)}
                         style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",
                           background:sel?C.mint:C.bg,border:`1px solid ${sel?C.teal:C.border}`,transition:"all .12s"}}>
-                        <div style={{...ava(C,32,u.online),flexShrink:0}}>{u.avatar}</div>
+                        <div style={{...ava(C,32),flexShrink:0}}>{initialsOf(u.full_name)}</div>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,fontWeight:700,color:C.text}}>{u.name}</div>
-                          <div style={{fontSize:10,color:C.sub}}>{u.spec} · {u.online?"🟢 online":"⚪ offline"}</div>
+                          <div style={{fontSize:12,fontWeight:700,color:C.text}}>{u.full_name||"Utilizador"}</div>
+                          <div style={{fontSize:10,color:C.sub}}>{u.specialty||""}</div>
                         </div>
                         <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${sel?C.teal:C.border}`,
                           background:sel?C.teal:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -1764,18 +1867,15 @@ function Community({ C, t, isMobile, me }) {
               </div>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <button onClick={()=>{setNewMeetingOpen(false);setNewMeetingTitle("");setNewMeetingDate("");setNewMeetingMembers([]);setNewMeetingSearch("");}} style={btn(C,"outline",true)}>Cancelar</button>
-                <button onClick={()=>{
-                  if(!newMeetingTitle.trim())return;
-                  const dt=newMeetingDate?new Date(newMeetingDate).toLocaleString("pt-PT",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"A definir";
-                  setMeetings(m=>[...m,{id:Date.now(),title:newMeetingTitle,host:"Dra. Ana Ferreira",date:dt,type:"Reunião",participants:newMeetingMembers.length+1}]);
-                  setNewMeetingTitle("");setNewMeetingDate("");setNewMeetingMembers([]);setNewMeetingSearch("");setNewMeetingOpen(false);
-                }} disabled={!newMeetingTitle.trim()}
+                <button onClick={createMeeting} disabled={!newMeetingTitle.trim()}
                   style={{...btn(C,"primary",true),opacity:!newMeetingTitle.trim()?0.5:1}}>
                   Agendar ({newMeetingMembers.length+1} participante{newMeetingMembers.length!==0?"s":""})
                 </button>
               </div>
             </div>
           )}
+          {meetingsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar reuniões…</div>}
+          {!meetingsLoading&&meetings.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Ainda sem reuniões agendadas.</div>}
           {meetings.map(m=>(
             <div key={m.id} style={card(C)}>
               <div style={{display:"flex",justifyContent:"space-between",gap:10}}>
@@ -1823,19 +1923,25 @@ function Community({ C, t, isMobile, me }) {
       )}
 
       {sub==="calendar"&&(()=>{
-        // Aggregate meetings + live/learning events into one unified agenda
-        const meetings = [
-          {title:"Webinar: Endocrinologia Felina",host:"Dra. Ana Ferreira",when:"Hoje, 18:00",kind:"Reunião",icon:"📹",color:C.teal},
-          {title:"Reunião de Caso — Oncologia",host:"Dr. Pedro Costa",when:"22 Jun, 17:00",kind:"Reunião",icon:"📹",color:C.teal},
-        ];
+        // Aggregate real meetings + mock live/learning events into one unified agenda.
+        // Meetings have a real `scheduledAt` timestamp, so they bucket by actual date;
+        // LIVE_EVENTS are still mock/text dates, so they keep the old string-prefix heuristic.
+        const now = new Date();
+        const tomorrowDate = new Date(now); tomorrowDate.setDate(now.getDate()+1);
+        const isSameDay = (d1,d2) => d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate();
+
+        const meetingAgenda = meetings.map(m=>({
+          title:m.title, host:m.host, when:m.date, kind:m.type, icon:"📹", color:C.teal,
+          bucket: m.scheduledAt ? (isSameDay(new Date(m.scheduledAt),now)?"today":isSameDay(new Date(m.scheduledAt),tomorrowDate)?"tomorrow":"later") : "later",
+        }));
         const learningEvents = LIVE_EVENTS.map(e=>({
           title:e.title, host:e.speaker, when:e.date, kind:e.status==="live"?"Ao Vivo":"Formação", icon:e.icon, color:e.status==="live"?C.rose:C.purple,
+          bucket: e.date.toLowerCase().startsWith("hoje")?"today":e.date.toLowerCase().startsWith("amanhã")?"tomorrow":"later",
         }));
-        const agenda = [...meetings, ...learningEvents];
-        // Group by rough day label (text-based since these are mock dates)
-        const today = agenda.filter(a=>a.when.toLowerCase().startsWith("hoje"));
-        const tomorrow = agenda.filter(a=>a.when.toLowerCase().startsWith("amanhã"));
-        const later = agenda.filter(a=>!a.when.toLowerCase().startsWith("hoje")&&!a.when.toLowerCase().startsWith("amanhã"));
+        const agenda = [...meetingAgenda, ...learningEvents];
+        const today = agenda.filter(a=>a.bucket==="today");
+        const tomorrow = agenda.filter(a=>a.bucket==="tomorrow");
+        const later = agenda.filter(a=>a.bucket==="later");
 
         const Group = ({label, items}) => items.length>0 && (
           <div style={{marginBottom:18}}>
@@ -3760,6 +3866,37 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
     onProfileSaved?.();
   };
 
+  const [myPosts, setMyPosts] = useState([]);
+  const [myPostsLoading, setMyPostsLoading] = useState(true);
+  const [myCases, setMyCases] = useState([]);
+  const [myCasesLoading, setMyCasesLoading] = useState(true);
+
+  useEffect(() => {
+    if(!u.id) return;
+    (async () => {
+      setMyPostsLoading(true);
+      const { data, error } = await supabase
+        .from("posts")
+        .select("id, content, likes_count, comments_count, created_at")
+        .eq("author_id", u.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if(!error) setMyPosts(data||[]);
+      setMyPostsLoading(false);
+    })();
+    (async () => {
+      setMyCasesLoading(true);
+      const { data, error } = await supabase
+        .from("soap_cases")
+        .select("id, title, species, age, status, subjective")
+        .eq("author_id", u.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if(!error) setMyCases(data||[]);
+      setMyCasesLoading(false);
+    })();
+  }, [u.id]);
+
   const SUBS=[{id:"posts",label:"📝 "+t("profile_posts")},{id:"cases",label:"🔬 "+t("profile_cases")},{id:"certs",label:"🎓 "+t("profile_certs")},{id:"stats",label:"📊 "+t("profile_stats")}];
   if(!profileLoaded) return <SkeletonFeed C={C}/>;
   return (
@@ -3813,17 +3950,21 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
       <div style={{display:"flex",gap:0,background:C.bg,borderRadius:10,padding:4,marginBottom:16,overflowX:"auto"}}>
         {SUBS.map(s=><button key={s.id} onClick={()=>setSub(s.id)} style={{flex:"1 0 auto",padding:"8px 10px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:sub===s.id?700:500,fontSize:isMobile?11:12,background:sub===s.id?C.surface:"transparent",color:sub===s.id?C.teal:C.sub,boxShadow:sub===s.id?"0 1px 4px rgba(0,0,0,0.1)":"none",transition:"all .15s",whiteSpace:"nowrap"}}>{s.label}</button>)}
       </div>
-      {sub==="posts"&&POSTS.slice(0,2).map(p=>(
+      {sub==="posts"&&myPostsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar…</div>}
+      {sub==="posts"&&!myPostsLoading&&myPosts.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Ainda sem publicações.</div>}
+      {sub==="posts"&&myPosts.map(p=>(
         <div key={p.id} style={card(C)}>
           <div style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:8}}>{p.content.slice(0,150)}…</div>
-          <div style={{display:"flex",gap:8,fontSize:12,color:C.sub}}><span>❤️ {p.likes}</span><span>💬 {p.comments}</span><span>{p.time}</span></div>
+          <div style={{display:"flex",gap:8,fontSize:12,color:C.sub}}><span>❤️ {p.likes_count}</span><span>💬 {p.comments_count}</span><span>{timeAgo(p.created_at)}</span></div>
         </div>
       ))}
-      {sub==="cases"&&CASES_SOAP.filter(c=>c.user.id===1).map(c=>(
+      {sub==="cases"&&myCasesLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar…</div>}
+      {sub==="cases"&&!myCasesLoading&&myCases.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Ainda sem casos SOAP.</div>}
+      {sub==="cases"&&myCases.map(c=>(
         <div key={c.id} style={card(C)}>
           <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:4}}>{c.title}</div>
           <div style={{fontSize:11,color:C.sub,marginBottom:8}}>{c.species} · {c.age} · <span style={tag(c.status==="Resolvido"?C.emerald:C.amber)}>{c.status}</span></div>
-          <div style={{fontSize:12,color:C.sub}}>{c.S.slice(0,100)}…</div>
+          <div style={{fontSize:12,color:C.sub}}>{(c.subjective||"").slice(0,100)}…</div>
         </div>
       ))}
       {sub==="certs"&&[{t:"Especialista em Medicina Interna",o:"ECVIM-CA",y:"2019",i:"🎓"},{t:"Doutoramento em Ciências Veterinárias",o:"Univ. Lisboa",y:"2016",i:"📜"},{t:"Mestrado em Animais de Companhia",o:"Univ. Évora",y:"2011",i:"📋"}].map((e,i)=>(
@@ -3943,6 +4084,25 @@ const timeAgo = (iso) => {
   return new Date(iso).toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
+const NOTIF_ACTIONS = {
+  like: "gostou da sua publicação",
+  comment: "comentou na sua publicação",
+  case_comment: "comentou no seu caso clínico",
+  msg: "enviou-lhe uma mensagem",
+};
+const NOTIF_COLORS = { like:"#E05C6A", comment:"#0D7377", case_comment:"#6C3FC7", msg:"#E8A838" };
+const mapNotifRow = (row) => ({
+  id: row.id,
+  type: row.type,
+  user: row.actor?.full_name || "Alguém",
+  avatar: initialsOf(row.actor?.full_name),
+  action: NOTIF_ACTIONS[row.type] || "",
+  target: row.target || "",
+  time: timeAgo(row.created_at),
+  read: row.read,
+  color: NOTIF_COLORS[row.type],
+});
+
 export default function VetConnect() {
   // ── Auth (Supabase) ──────────────────────────────────────────────────────
   const [session, setSession] = useState(undefined); // undefined = ainda a carregar, null = sem sessão
@@ -3994,18 +4154,8 @@ export default function VetConnect() {
   const [moreOpen,setMoreOpen]=useState(false);
 
   // ── Global notification state (lifted from NotifPanel) ──────────────────────
-  const [globalNotifs, setGlobalNotifs] = useState(NOTIFS);
+  const [globalNotifs, setGlobalNotifs] = useState([]);
   const [toast, setToast] = useState(null); // {id, icon, title, body, color}
-
-  const pushNotif = (notif) => {
-    const newN = { ...notif, id: Date.now() + Math.random(), read: false, time: "agora" };
-    setGlobalNotifs(prev => [newN, ...prev]);
-    setToast(newN);
-    // Browser Notification API
-    if(typeof Notification !== "undefined" && Notification.permission === "granted") {
-      new Notification(notif.user, { body: notif.action + (notif.target ? ` — ${notif.target}` : ""), icon: "🐾" });
-    }
-  };
 
   // Request browser notification permission once onboarded
   useEffect(() => {
@@ -4015,43 +4165,41 @@ export default function VetConnect() {
     }
   }, [onboarded]);
 
-  // ── Notification engine ─────────────────────────────────────────────────────
+  // ── Notification engine (real: post likes/comments, case comments, messages) ─
   useEffect(() => {
-    if(!onboarded) return;
+    if(!me.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("id, type, target, read, created_at, actor:actor_id(full_name)")
+        .eq("recipient_id", me.id)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if(!error && !cancelled) setGlobalNotifs((data||[]).map(mapNotifRow));
+    })();
+    return () => { cancelled = true; };
+  }, [me.id]);
 
-    // Simulate incoming message after 12 s
-    const msgTimer = setTimeout(() => {
-      pushNotif({ type:"msg", user:"Dr. Rui Santos", action:"enviou-lhe uma mensagem", target:"Tens disponibilidade para discutir o caso?", avatar:"RS", color:"#0D7377" });
-    }, 12000);
-
-    // Simulate 2nd message after 35 s
-    const msgTimer2 = setTimeout(() => {
-      pushNotif({ type:"msg", user:"Dra. Marta Lima", action:"enviou-lhe uma mensagem", target:"Confirmas presença no workshop de amanhã?", avatar:"ML", color:"#6C3FC7" });
-    }, 35000);
-
-    // Reunião em 30 min — aviso após 20 s
-    const meetTimer = setTimeout(() => {
-      pushNotif({ type:"live", user:"📅 Reunião de Caso — Oncologia", action:"começa em 30 minutos", target:"Anfitrião: Dr. Pedro Costa · Hoje às 17:00", avatar:"PC", color:"#27AE60" });
-    }, 20000);
-
-    // Congresso ao vivo em 30 min — aviso após 45 s
-    const congressTimer = setTimeout(() => {
-      pushNotif({ type:"live", user:"📡 Congresso Nacional Veterinária 2024", action:"começa em 30 minutos", target:"Não perca a sessão de abertura às 14:00", avatar:"VC", color:"#E8A838" });
-    }, 45000);
-
-    // Webinar em 30 min — aviso após 70 s
-    const webinarTimer = setTimeout(() => {
-      pushNotif({ type:"live", user:"🎓 Webinar: Endocrinologia Felina", action:"começa em 30 minutos", target:"Dra. Ana Ferreira · Hoje às 18:00", avatar:"AF", color:"#E05C6A" });
-    }, 70000);
-
-    return () => {
-      clearTimeout(msgTimer);
-      clearTimeout(msgTimer2);
-      clearTimeout(meetTimer);
-      clearTimeout(congressTimer);
-      clearTimeout(webinarTimer);
-    };
-  }, [onboarded]);
+  useEffect(() => {
+    if(!me.id) return;
+    const channel = supabase.channel(`notifications:${me.id}`)
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"notifications", filter:`recipient_id=eq.${me.id}` }, async payload => {
+        let actorName = null;
+        if(payload.new.actor_id){
+          const { data } = await supabase.from("profiles").select("full_name").eq("id", payload.new.actor_id).single();
+          actorName = data?.full_name;
+        }
+        const mapped = mapNotifRow({ ...payload.new, actor: { full_name: actorName } });
+        setGlobalNotifs(prev => [mapped, ...prev]);
+        setToast(mapped);
+        if(typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification(mapped.user, { body: mapped.action + (mapped.target ? ` — ${mapped.target}` : ""), icon: "🐾" });
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [me.id]);
 
   // Auto-dismiss toast after 5 s
   useEffect(() => {
@@ -4242,7 +4390,7 @@ export default function VetConnect() {
             </div>
           )}
 
-          {notifOpen&&<NotifPanel onClose={()=>setNotifOpen(false)} C={C} t={t} isMobile={isMobile} notifs={globalNotifs} setNotifs={setGlobalNotifs} setMainTab={setMainTab}/>}
+          {notifOpen&&<NotifPanel onClose={()=>setNotifOpen(false)} C={C} t={t} isMobile={isMobile} notifs={globalNotifs} setNotifs={setGlobalNotifs} setMainTab={setMainTab} meId={me.id}/>}
           {langOpen&&<LangPicker onClose={()=>setLangOpen(false)} lang={lang} setLang={setLang} C={C} t={t}/>}
           {searchOpen&&searchQ&&<SearchHub query={searchQ} onClose={()=>setSearchOpen(false)} C={C} t={t} setMainTab={setMainTab}/>}
 
@@ -4390,7 +4538,7 @@ export default function VetConnect() {
                 <button onClick={()=>setToast(null)} aria-label="Fechar notificação"
                   style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:16,lineHeight:1,padding:2}}>✕</button>
                 <button onClick={()=>{
-                  const dest={like:"home",comment:"home",follow:"home",msg:"community",live:"learn",match:"market",job:"market",ai:"clinic"}[toast.type];
+                  const dest={like:"home",comment:"home",case_comment:"clinic",follow:"home",msg:"community",live:"learn",match:"market",job:"market",ai:"clinic"}[toast.type];
                   if(dest) setMainTab(dest);
                   setToast(null); setNotifOpen(true);
                 }}
