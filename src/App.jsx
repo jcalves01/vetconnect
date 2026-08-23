@@ -2772,6 +2772,7 @@ const computeJobMatch = (job, me) => {
 };
 const mapJobRow = (row, me) => ({
   id: row.id,
+  authorId: row.author_id,
   title: row.title,
   company: row.company,
   type: row.type,
@@ -2780,6 +2781,7 @@ const mapJobRow = (row, me) => ({
   posted: timeAgo(row.created_at),
   urgent: row.urgent,
   match: computeJobMatch(row, me),
+  applicantsCount: (row.job_applications||[]).length,
 });
 const mapMarketItemRow = (row) => ({
   id: row.id,
@@ -2804,6 +2806,13 @@ function Market({ C, t, isMobile, me, setMainTab }) {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportText, setReportText] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
+  const [reportProvider, setReportProvider] = useState("anthropic");
+  const REPORT_PROVIDERS = [
+    {id:"anthropic", label:"Claude (Anthropic)"},
+    {id:"gemini", label:"Gemini (Google)"},
+    {id:"openai", label:"GPT (OpenAI)"},
+    {id:"deepseek", label:"DeepSeek"},
+  ];
   const [supplierSearch, setSupplierSearch] = useState("");
   const [supplierQuery, setSupplierQuery] = useState("");
   const [marketVisible, setMarketVisible] = useState(4);
@@ -2834,12 +2843,35 @@ function Market({ C, t, isMobile, me, setMainTab }) {
   });
 
   const loadJobs = async () => {
-    const { data, error } = await supabase.from("jobs").select("*").order("created_at",{ascending:false}).limit(50);
+    const { data, error } = await supabase.from("jobs").select("*, job_applications(applicant_id)").order("created_at",{ascending:false}).limit(50);
     if(error){ console.error(error); setJobsLoading(false); return; }
     setJobItems((data||[]).map(row=>mapJobRow(row, me)));
     setJobsLoading(false);
   };
   useEffect(() => { loadJobs(); }, []);
+
+  const [applicantsJob, setApplicantsJob] = useState(null);
+  const [applicants, setApplicants] = useState([]);
+  const [applicantsLoading, setApplicantsLoading] = useState(false);
+
+  const openApplicants = async (job) => {
+    setApplicantsJob(job);
+    setApplicantsLoading(true);
+    const { data, error } = await supabase
+      .from("job_applications")
+      .select("applicant_id, created_at, applicant:applicant_id(id,full_name,specialty,country)")
+      .eq("job_id", job.id)
+      .order("created_at", { ascending: false });
+    if(!error) setApplicants(data||[]);
+    setApplicantsLoading(false);
+  };
+
+  const contactApplicant = async (userId) => {
+    const { error } = await supabase.rpc("get_or_create_dm", { other_user_id: userId });
+    if(error){ console.error(error); return; }
+    setApplicantsJob(null);
+    setMainTab("community");
+  };
 
   useEffect(() => {
     const loadSavedJobs = async () => {
@@ -2925,11 +2957,10 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
       const res = await fetch("/api/jobs-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ criteria, jobCount: filteredJobs.length, jobList })
+        body: JSON.stringify({ criteria, jobCount: filteredJobs.length, jobList, provider: reportProvider })
       });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if(data.error) throw new Error(data.error);
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
       setReportText(data.report || "Sem conteúdo.");
     } catch(err) {
       setReportText(`❌ Erro ao gerar relatório: ${err.message}`);
@@ -3151,7 +3182,10 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                     <div style={{fontWeight:800,fontSize:15,color:C.text}}>Relatório Diário de Vagas</div>
                     <div style={{fontSize:11,color:C.sub}}>{new Date().toLocaleDateString("pt-PT",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
                   </div>
-                  <div style={{display:"flex",gap:8}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <select value={reportProvider} onChange={e=>setReportProvider(e.target.value)} disabled={reportLoading} style={{...inp(C),fontSize:11,padding:"5px 8px",width:"auto"}}>
+                      {REPORT_PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+                    </select>
                     {reportText&&!reportLoading&&(
                       <button onClick={()=>{navigator.clipboard?.writeText(reportText);}}
                         style={{...btn(C,"outline",true),fontSize:11}}>📋 Copiar</button>
@@ -3332,14 +3366,22 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                 </div>
               </div>
               <div style={{display:"flex",gap:6,marginTop:12}}>
-                <button onClick={()=>toggleSaveJob(j.id)}
-                  style={{...btn(C,savedJobs.includes(j.id)?"primary":"outline",true),background:savedJobs.includes(j.id)?C.amber:undefined}}>
-                  {savedJobs.includes(j.id)?"★ Guardado":t("save")}
-                </button>
-                <button onClick={()=>applyToJob(j.id)}
-                  style={{...btn(C,"primary",true),background:(mktFb===("apply_"+j.id)||appliedJobs.includes(j.id))?C.emerald:C.teal}}>
-                  {mktFb===("apply_"+j.id)?"✓ Candidatura enviada!":appliedJobs.includes(j.id)?"✓ Candidatou-se":t("apply")}
-                </button>
+                {j.authorId===me.id?(
+                  <button onClick={()=>openApplicants(j)} style={btn(C,"outline",true)}>
+                    👥 Ver candidatos{j.applicantsCount>0?` (${j.applicantsCount})`:""}
+                  </button>
+                ):(
+                  <>
+                    <button onClick={()=>toggleSaveJob(j.id)}
+                      style={{...btn(C,savedJobs.includes(j.id)?"primary":"outline",true),background:savedJobs.includes(j.id)?C.amber:undefined}}>
+                      {savedJobs.includes(j.id)?"★ Guardado":t("save")}
+                    </button>
+                    <button onClick={()=>applyToJob(j.id)}
+                      style={{...btn(C,"primary",true),background:(mktFb===("apply_"+j.id)||appliedJobs.includes(j.id))?C.emerald:C.teal}}>
+                      {mktFb===("apply_"+j.id)?"✓ Candidatura enviada!":appliedJobs.includes(j.id)?"✓ Candidatou-se":t("apply")}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -3390,6 +3432,36 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
             </div>
           </div>
         )
+      )}
+
+      {/* Job applicants modal */}
+      {applicantsJob&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setApplicantsJob(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:460,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:800,fontSize:15,color:C.text}}>👥 Candidatos</div>
+                <div style={{fontSize:11,color:C.sub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{applicantsJob.title}</div>
+              </div>
+              <button onClick={()=>setApplicantsJob(null)} aria-label={t("close")} style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:20,flexShrink:0}}>✕</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"8px 20px"}}>
+              {applicantsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar…</div>}
+              {!applicantsLoading&&applicants.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Ainda sem candidaturas.</div>}
+              {applicants.map(a=>(
+                <div key={a.applicant_id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{...ava(C,38),flexShrink:0}}>{initialsOf(a.applicant?.full_name)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:13,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.applicant?.full_name||"Utilizador"}</div>
+                    <div style={{fontSize:11,color:C.sub}}>{a.applicant?.specialty||""}{a.applicant?.country?` · ${a.applicant.country}`:""}</div>
+                    <div style={{fontSize:10,color:C.sub,marginTop:2}}>Candidatou-se {timeAgo(a.created_at)}</div>
+                  </div>
+                  <button onClick={()=>contactApplicant(a.applicant_id)} style={{...btn(C,"outline",true),flexShrink:0}}>💬 {t("contact")}</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Item-scoped contact modal */}
