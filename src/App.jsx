@@ -166,13 +166,6 @@ const tag = (color) => ({background:color+"18",color,borderRadius:20,padding:"3p
 const ava = (C, size=40, online=false) => ({width:size,height:size,borderRadius:"50%",flexShrink:0,background:`linear-gradient(135deg,${C.teal},${C.tealL})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:size*0.35,boxShadow:online?`0 0 0 2px ${C.surface},0 0 0 4px ${C.emerald}`:"none"});
 
 // ── Mock Data ─────────────────────────────────────────────────────────────────
-const USERS = [
-  {id:1,name:"Dra. Ana Ferreira",spec:"Medicina Interna",avatar:"AF",country:"Portugal",license:"OMV-12345",followers:892,following:341,online:true,verified:true,rep:4.8,interests:["Endocrinologia","Cardiologia","Medicina Interna"]},
-  {id:2,name:"Dr. Rui Santos",spec:"Cirurgia",avatar:"RS",country:"Portugal",license:"OMV-8821",followers:1204,following:287,online:false,verified:true,rep:4.9,interests:["Cirurgia","Anestesia"]},
-  {id:3,name:"Dra. Marta Lima",spec:"Dermatologia",avatar:"ML",country:"Portugal",license:"OMV-9934",followers:567,following:420,online:true,verified:false,rep:4.7,interests:["Dermatologia"]},
-  {id:4,name:"Dr. Pedro Costa",spec:"Oncologia",avatar:"PC",country:"Brasil",license:"CRMV-SP-44321",followers:2341,following:198,online:false,verified:true,rep:5.0,interests:["Oncologia","Hematologia"]},
-  {id:5,name:"Dr. João Neves",spec:"Imagiologia",avatar:"JN",country:"Portugal",license:"OMV-7712",followers:788,following:312,online:true,verified:true,rep:4.6,interests:["Imagiologia"]},
-];
 const SPECIALTIES = ["Medicina Interna","Cirurgia","Dermatologia","Oncologia","Imagiologia","Cardiologia","Neurologia","Ortopedia","Oftalmologia","Anestesia","Medicina de Urgência","Medicina Preventiva","Nutrição Clínica","Reprodução","Exóticos"];
 const LIVE_EVENTS = [
   {id:1,title:"Congresso Nacional de Medicina Veterinária 2024",speaker:"Vários Oradores",speakerAvatar:"CN",date:"Hoje, 14:00",duration:"3h",viewers:1847,status:"live",price:"Gratuito",tags:["Congresso"],icon:"🏛️",slideTitle:"Avanços em Medicina Veterinária 2024",slideSubtitle:"Mesa redonda: Diagnóstico por imagem e terapêutica minimamente invasiva",program:"14:00 Abertura · 14:30 Imagiologia · 15:30 Cirurgia · 16:30 Mesa Redonda",cpd:4},
@@ -229,10 +222,6 @@ const SUPPLIERS = [
       {type:"doc",title:"Catálogo Equipamentos Cirúrgicos 2024",ext:"PDF",size:"3.7 MB",date:"Jan 2024",desc:"Catálogo completo de equipamentos cirúrgicos com especificações técnicas e preços.",pages:"36 págs"},
       {type:"doc",title:"Certificados CE e ISO",ext:"ZIP",size:"2.1 MB",date:"Jan 2024",desc:"Certificados de conformidade europeia e ISO 13485 para todos os equipamentos."},
     ]},
-];
-const CASES_SOAP = [
-  {id:1,user:USERS[0],title:"Golden Retriever — PU/PD e nódulos adrenais",species:"Canídeo",breed:"Golden Retriever",age:"7 anos",sex:"Macho castrado",date:"há 2h",status:"Em discussão",replies:8,S:"Proprietário refere poliúria e polidipsia há 3 semanas. Animal apático, perda de peso gradual (~2kg). Apetite mantido. Vacinado e desparasitado.",O:"Peso: 32kg. BCS 5/9. Mucosas rosadas. TRC <2s. PAS 145mmHg. Ecografia: nódulos adrenais bilaterais 1,2cm e 0,8cm. Cortisol basal: 8,2µg/dL.",A:"Hiperadrenocorticismo (PDH vs HAC atípico). DD: Diabetes mellitus, PU/PD de causa renal, hipotiroidismo.",P:"1) ACTH stim test amanhã 2) Perfil tiroideo 3) Ecografia hepática 4) Trilostano se HAC confirmado"},
-  {id:2,user:USERS[1],title:"Gato — Dispneia aguda e derrame pleural",species:"Felídeo",breed:"Europeu Comum",age:"6 anos",sex:"Macho castrado",date:"há 1d",status:"Resolvido",replies:14,S:"Dispneia progressiva nas últimas 48h. Sem história de trauma. Não vacinado.",O:"FR 62/min. Posição ortopneica. Sons cardíacos abafados. Rx: derrame pleural bilateral. Eco: cardiomiopatia hipertrófica.",A:"Insuficiência cardíaca congestiva secundária a CMH.",P:"1) Toracocentese bilateral 2) Furosemida IV 1mg/kg 3) Atenolol 6,25mg SID 4) Recheck eco em 2 semanas"},
 ];
 const DRUGS = [
   {name:"Amoxicilina-Clavulanato",dose:"12,5-25 mg/kg",freq:"BID",route:"PO/IV",species:"Cão, Gato",notes:"Ajuste em IR"},
@@ -584,9 +573,10 @@ function SearchSection({title,color,icon,children}){
 function SearchHub({ query, onClose, C, t, setMainTab }) {
   const q = query.toLowerCase();
   const [vets, setVets] = useState([]);
+  const [cases, setCases] = useState([]);
 
   useEffect(() => {
-    if(!q.trim()){ setVets([]); return; }
+    if(!q.trim()){ setVets([]); setCases([]); return; }
     let cancelled = false;
     const timer = setTimeout(async () => {
       const { data, error } = await supabase
@@ -595,8 +585,8 @@ function SearchHub({ query, onClose, C, t, setMainTab }) {
         .or(`full_name.ilike.%${q}%,specialty.ilike.%${q}%`)
         .limit(10);
       if(cancelled) return;
-      if(error){ console.error(error); setVets([]); return; }
-      setVets((data||[]).map(p => ({
+      if(error){ console.error(error); setVets([]); }
+      else setVets((data||[]).map(p => ({
         id: p.id,
         name: p.full_name || "Utilizador",
         avatar: initialsOf(p.full_name),
@@ -605,12 +595,20 @@ function SearchHub({ query, onClose, C, t, setMainTab }) {
         online: false,
         verified: false,
       })));
+
+      const { data: caseData, error: caseErr } = await supabase
+        .from("soap_cases")
+        .select("id, title, species, age, status")
+        .or(`title.ilike.%${q}%,subjective.ilike.%${q}%`)
+        .limit(10);
+      if(cancelled) return;
+      if(caseErr){ console.error(caseErr); setCases([]); }
+      else setCases(caseData||[]);
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [q]);
 
   if(!q) return null;
-  const cases=CASES_SOAP.filter(c=>c.title.toLowerCase().includes(q)||c.S.toLowerCase().includes(q));
   const courses=COURSES.filter(c=>c.title.toLowerCase().includes(q));
   const items=MARKET_ITEMS.filter(i=>i.title.toLowerCase().includes(q));
   const total=vets.length+cases.length+courses.length+items.length;
@@ -4131,7 +4129,7 @@ export default function VetConnect() {
 
   const signOut = () => supabase.auth.signOut();
 
-  // "me" — objecto no mesmo formato de USERS[n], derivado do perfil real
+  // "me" — objecto derivado do perfil real, na forma que o resto do código espera
   const me = {
     id: session?.user?.id || null,
     name: profile?.full_name || session?.user?.email || "Utilizador",
