@@ -249,13 +249,6 @@ const PROTOCOLS = [
   {id:2,title:"Protocolo de Anestesia de Alto Risco",spec:"Anestesia",author:"Dr. Rui Santos",icon:"💉",content:"Pré-med: Metadona 0,2mg/kg + Midazolam 0,2mg/kg IM.\nIndução: Propofol TCI ou Alfaxalona 2mg/kg IV.\nManutenção: Isoflurano 1-1,5% + CRI Fentanil 5-10µg/kg/h.\nMonitorizar: SpO2, EtCO2, PA, temperatura."},
   {id:3,title:"Protocolo RECOVER — RCP Básico",spec:"Medicina de Urgência",author:"VetConnect",icon:"❤️",content:"C-A-B: 100-120 compressões/min, 1/3 do diâmetro torácico.\nVentilação: 10/min, VT 10mL/kg.\nAdrenalina: 0,01mg/kg IV q3-5min.\nAtropina: 0,04mg/kg IV (assístolia).\nDesfibrilhação: 2-4 J/kg."},
 ];
-const EXPERTS_MAP = [
-  {id:1,name:"Dra. Ana Ferreira",spec:"Medicina Interna",city:"Lisboa",verified:true,avatar:"AF"},
-  {id:2,name:"Dr. Rui Santos",spec:"Cirurgia",city:"Porto",verified:true,avatar:"RS"},
-  {id:3,name:"Dra. Marta Lima",spec:"Dermatologia",city:"Coimbra",verified:false,avatar:"ML"},
-  {id:4,name:"Dr. Pedro Costa",spec:"Oncologia",city:"Braga",verified:true,avatar:"PC"},
-  {id:5,name:"Dr. João Neves",spec:"Imagiologia",city:"Setúbal",verified:true,avatar:"JN"},
-];
 const SYMPTOMS = ["Poliúria/Polidipsia","Vómito","Diarreia","Letargia","Anorexia","Perda de peso","Tosse","Dispneia","Convulsões","Icterícia","Distensão abdominal","Prurido","Alopécia","Polifagia","Ataxia","Hematúria","Epistaxe","Claudicação","Febre","Ascite"];
 const SPECIES_LIST = ["Canídeo","Felídeo","Equídeo","Bovídeo","Ovídeo","Aves","Réptil","Lagomorfo"];
 const BLOOD_P = {
@@ -462,12 +455,11 @@ function Onboarding({ onBack, C, t }) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
   const [spec, setSpec] = useState(""); const [country, setCountry] = useState(""); const [license, setLicense] = useState("");
-  const [interests, setInterests] = useState([]); const [followed, setFollowed] = useState([]);
+  const [interests, setInterests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [signedUp, setSignedUp] = useState(false);
   const toggleInt = s => setInterests(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
-  const toggleFollow = id => setFollowed(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
 
   const finishSignup = async () => {
     setError("");
@@ -554,19 +546,14 @@ function Onboarding({ onBack, C, t }) {
     </div>,
 
     <div key={3} style={{padding:"28px 24px"}}>
-      <div style={{fontWeight:800,fontSize:20,color:C.text,marginBottom:4}}>👥 {t("onb_suggestions")}</div>
-      <div style={{color:C.sub,fontSize:12,marginBottom:18}}>Passo 3 de 3 — Com base em: {spec}</div>
-      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:22}}>
-        {USERS.slice(1,5).map(u=>(
-          <div key={u.id} style={{...card(C,{marginBottom:0,padding:"12px 14px"}),display:"flex",alignItems:"center",gap:12}}>
-            <div style={ava(C,42,u.online)}>{u.avatar}</div>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:700,fontSize:13,color:C.text,display:"flex",alignItems:"center",gap:6}}>{u.name}{u.verified&&<span>✅</span>}</div>
-              <div style={{fontSize:11,color:C.sub}}>{u.spec} · {u.country} · ⭐{u.rep}</div>
-            </div>
-            <button onClick={()=>toggleFollow(u.id)} style={{...btn(C,followed.includes(u.id)?"outline":"primary",true),fontSize:11}}>{followed.includes(u.id)?"✓ A seguir":t("follow")}</button>
-          </div>
-        ))}
+      <div style={{fontWeight:800,fontSize:20,color:C.text,marginBottom:4}}>🎉 Tudo pronto!</div>
+      <div style={{color:C.sub,fontSize:12,marginBottom:18}}>Passo 3 de 3 — Reveja e confirme a sua conta</div>
+      <div style={{...card(C),marginBottom:22}}>
+        <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>{name||"—"}</div>
+        <div style={{fontSize:12,color:C.sub,marginBottom:10}}>{spec}{country?` · ${country}`:""}{license?` · ${license}`:""}</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {interests.map(i=><span key={i} style={tag(C.teal)}>{i}</span>)}
+        </div>
       </div>
       {error&&(
         <div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:C.rose}}>⚠️ {error}</div>
@@ -3772,41 +3759,55 @@ function SOAPCases({ C, t, isMobile, me }) {
   );
 }
 
-function ExpertMap({ C, t, isMobile }) {
+function ExpertMap({ C, t, isMobile, me, setMainTab }) {
   const [specFilter,setSpecFilter]=useState("Todos");
+  const [experts,setExperts]=useState([]);
+  const [expertsLoading,setExpertsLoading]=useState(true);
   const [expertFb, triggerExpertFb] = useFeedback();
-  const specs=["Todos",...Array.from(new Set(EXPERTS_MAP.map(e=>e.spec)))];
-  const filtered=specFilter==="Todos"?EXPERTS_MAP:EXPERTS_MAP.filter(e=>e.spec===specFilter);
-  const positions=[{top:"36%",left:"28%"},{top:"17%",left:"43%"},{top:"29%",left:"46%"},{top:"12%",left:"38%"},{top:"49%",left:"33%"}];
+
+  useEffect(() => {
+    if(!me?.id) return;
+    (async () => {
+      setExpertsLoading(true);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, specialty, country")
+        .neq("id", me.id)
+        .order("full_name")
+        .limit(100);
+      if(!error) setExperts(data||[]);
+      setExpertsLoading(false);
+    })();
+  }, [me?.id]);
+
+  const specs=["Todos",...Array.from(new Set(experts.map(e=>e.specialty).filter(Boolean)))];
+  const filtered=specFilter==="Todos"?experts:experts.filter(e=>e.specialty===specFilter);
+
+  const contact = async (e) => {
+    const { error } = await supabase.rpc("get_or_create_dm", { other_user_id: e.id });
+    if(error){ console.error(error); return; }
+    triggerExpertFb("contact_"+e.id);
+    setMainTab?.("community");
+  };
+
   return (
     <div>
       <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text,marginBottom:6}}>🗺️ Mapa de Especialistas</div>
-      <div style={{color:C.sub,fontSize:12,marginBottom:14}}>Encontre especialistas para referenciação por especialidade e localização</div>
-      <div style={{height:isMobile?210:310,background:`linear-gradient(135deg,${C.mint},${C.mintD})`,borderRadius:14,marginBottom:16,position:"relative",overflow:"hidden",border:`1px solid ${C.border}`}}>
-        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:36}}>🗺️</div>
-          <div style={{fontWeight:700,fontSize:14,color:C.teal}}>Mapa Interactivo de Portugal</div>
-          <div style={{fontSize:11,color:C.sub}}>Clique nos pins para ver especialistas</div>
-        </div>
-        {EXPERTS_MAP.map((e,i)=>(
-          <div key={e.id} title={e.name} style={{position:"absolute",...(positions[i]||{top:"50%",left:"50%"}),display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}}>
-            <div style={{width:30,height:30,borderRadius:"50%",background:C.teal,border:"3px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:10,boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>{e.avatar}</div>
-            <div style={{background:C.teal,color:"#fff",borderRadius:6,padding:"2px 6px",fontSize:9,fontWeight:700,whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>{e.city}</div>
-          </div>
-        ))}
-      </div>
+      <div style={{color:C.sub,fontSize:12,marginBottom:14}}>Encontre colegas por especialidade para referenciação</div>
       <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto"}}>
         {specs.map(s=><button key={s} onClick={()=>setSpecFilter(s)} style={{padding:"5px 12px",borderRadius:18,border:"none",cursor:"pointer",fontWeight:specFilter===s?700:400,background:specFilter===s?C.teal:C.bg,color:specFilter===s?"#fff":C.sub,fontSize:12,whiteSpace:"nowrap"}}>{s}</button>)}
       </div>
+      {expertsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:13}}>A carregar…</div>}
+      {!expertsLoading&&filtered.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:13}}>Sem colegas encontrados.</div>}
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {filtered.map(e=>(
           <div key={e.id} style={{...card(C,{marginBottom:0}),display:"flex",alignItems:"center",gap:12}}>
-            <div style={ava(C,44)}>{e.avatar}</div>
+            <div style={ava(C,44)}>{initialsOf(e.full_name)}</div>
             <div style={{flex:1}}>
-              <div style={{fontWeight:700,fontSize:13,color:C.text,display:"flex",alignItems:"center",gap:6}}>{e.name}{e.verified&&<span style={{fontSize:12}}>✅</span>}</div>
-              <div style={{fontSize:11,color:C.sub}}>{e.spec} · 📍 {e.city}</div>
+              <div style={{fontWeight:700,fontSize:13,color:C.text}}>{e.full_name||"Utilizador"}</div>
+              <div style={{fontSize:11,color:C.sub}}>{e.specialty||"Sem especialidade"}{e.country?` · 📍 ${e.country}`:""}</div>
             </div>
-            <button onClick={()=>triggerExpertFb("contact_"+e.id)}
+            <button onClick={()=>contact(e)}
               style={{...btn(C,expertFb===("contact_"+e.id)?"primary":"outline",true),background:expertFb===("contact_"+e.id)?C.emerald:undefined}}>
               {expertFb===("contact_"+e.id)?"✓ Enviado!":"Contactar"}
             </button>
@@ -3817,7 +3818,7 @@ function ExpertMap({ C, t, isMobile }) {
   );
 }
 
-function Clinic({ C, t, isMobile, me }) {
+function Clinic({ C, t, isMobile, me, setMainTab }) {
   const [sub,setSub]=useState("ai");
   const SUBS=[{id:"ai",label:"🧠 "+t("clinic_ai")},{id:"calc",label:"🧮 Calc."},{id:"drugs",label:"💊 "+t("clinic_drugs")},{id:"protocols",label:"📋 "+t("clinic_protocols")},{id:"cases",label:"🔬 "+t("profile_cases")},{id:"map",label:"🗺️ "+t("clinic_map")}];
   return (
@@ -3830,7 +3831,7 @@ function Clinic({ C, t, isMobile, me }) {
       {sub==="drugs"&&<DrugDB C={C} t={t} isMobile={isMobile}/>}
       {sub==="protocols"&&<Protocols C={C} t={t} isMobile={isMobile}/>}
       {sub==="cases"&&<SOAPCases C={C} t={t} isMobile={isMobile} me={me}/>}
-      {sub==="map"&&<ExpertMap C={C} t={t} isMobile={isMobile}/>}
+      {sub==="map"&&<ExpertMap C={C} t={t} isMobile={isMobile} me={me} setMainTab={setMainTab}/>}
     </div>
   );
 }
