@@ -167,26 +167,6 @@ const ava = (C, size=40, online=false) => ({width:size,height:size,borderRadius:
 
 // ── Mock Data ─────────────────────────────────────────────────────────────────
 const SPECIALTIES = ["Medicina Interna","Cirurgia","Dermatologia","Oncologia","Imagiologia","Cardiologia","Neurologia","Ortopedia","Oftalmologia","Anestesia","Medicina de Urgência","Medicina Preventiva","Nutrição Clínica","Reprodução","Exóticos"];
-const LIVE_EVENTS = [
-  {id:1,title:"Congresso Nacional de Medicina Veterinária 2024",speaker:"Vários Oradores",speakerAvatar:"CN",date:"Hoje, 14:00",duration:"3h",viewers:1847,status:"live",price:"Gratuito",tags:["Congresso"],icon:"🏛️",slideTitle:"Avanços em Medicina Veterinária 2024",slideSubtitle:"Mesa redonda: Diagnóstico por imagem e terapêutica minimamente invasiva",program:"14:00 Abertura · 14:30 Imagiologia · 15:30 Cirurgia · 16:30 Mesa Redonda",cpd:4},
-  {id:2,title:"Palestra: Endocrinologia Felina — Casos Clínicos",speaker:"Dra. Ana Ferreira",speakerAvatar:"AF",date:"Hoje, 18:00",duration:"1h30",viewers:423,status:"live",price:"Gratuito",tags:["Endocrinologia"],icon:"🐱",slideTitle:"Hipertiroidismo Felino",slideSubtitle:"Diagnóstico diferencial e opções terapêuticas",program:"18:00 Intro · 18:20 Diagnóstico · 19:00 Tratamento · 19:20 Q&A",cpd:2},
-  {id:3,title:"Workshop: Ecografia Abdominal Canina",speaker:"Dr. João Neves",speakerAvatar:"JN",date:"Amanhã, 10:00",duration:"4h",viewers:0,status:"upcoming",price:"€49",tags:["Imagiologia"],icon:"📡",slideTitle:"Ecografia Abdominal",slideSubtitle:"Sistema hepato-biliar, renal e gastrointestinal",program:"10:00 Técnica · 11:00 Hepato-biliar · 12:00 Rins · 13:00 GI",cpd:6},
-  {id:4,title:"Simpósio de Oncologia Veterinária",speaker:"Dr. Pedro Costa",speakerAvatar:"PC",date:"15 Jul, 09:00",duration:"6h",viewers:0,status:"upcoming",price:"€89",tags:["Oncologia"],icon:"🎗️",slideTitle:"Oncologia: Estado da Arte",slideSubtitle:"Quimioterapia, imunoterapia e cuidados paliativos",program:"09:00 Abertura · 10:00 QT · 11:30 Imunoterapia · 14:00 Paliativos",cpd:8},
-];
-const COURSES = [
-  {id:1,title:"Dermatologia Veterinária Avançada",type:"Curso",price:"€249",rating:4.9,reviews:127,author:"Dra. Marta Lima",duration:"32h",icon:"📚",cpd:20},
-  {id:2,title:"ECG Felino: Interpretação Prática",type:"Webinar",price:"€89",rating:4.8,reviews:84,author:"Dr. João Neves",duration:"8h",icon:"🫀",cpd:6},
-  {id:3,title:"Nutrição Clínica Canina",type:"Certificação",price:"€399",rating:4.7,reviews:213,author:"Dra. Sofia Reis",duration:"56h",icon:"🎓",cpd:40},
-  {id:4,title:"Anestesia de Alto Risco",type:"Masterclass",price:"€179",rating:4.9,reviews:96,author:"Dr. Rui Santos",duration:"12h",icon:"💉",cpd:10},
-  {id:5,title:"Guia Clínico de Medicina Interna Felina",type:"E-book",price:"€29",rating:4.8,reviews:54,author:"Dra. Ana Ferreira",duration:"PDF · 210 págs",icon:"📖",cpd:0},
-  {id:6,title:"Atlas de Dermatologia Veterinária",type:"E-book",price:"€39",rating:4.9,reviews:38,author:"Dra. Marta Lima",duration:"PDF · 320 págs",icon:"📖",cpd:0},
-];
-const MARKET_ITEMS = [
-  {id:1,title:"Analisador Hematológico Vet ABC Plus",cat:"Equipamento",price:"€3.200",cond:"Usado - Bom",loc:"Lisboa",seller:"Clínica VetPremium",img:"🔬",rating:4.5,verified:true},
-  {id:2,title:"Clínica Veterinária c/ carteira clientes",cat:"Negócio",price:"€95.000",cond:"Em funcionamento",loc:"Porto",seller:"Dr. Manuel Sousa",img:"🏥",rating:5.0,verified:true},
-  {id:3,title:"Stock Antibióticos - Lote 2024",cat:"Stock",price:"€1.800",cond:"Novo",loc:"Braga",seller:"MedVet Lda",img:"💊",rating:4.8,verified:false},
-  {id:4,title:"Ecógrafo MyLab X8 VET",cat:"Equipamento",price:"€8.500",cond:"Usado - Ótimo",loc:"Coimbra",seller:"Dra. Ana Pinto",img:"📡",rating:4.7,verified:true},
-];
 const SUPPLIERS = [
   {id:1,name:"IDEXX Laboratories",cat:"Laboratório Diagnóstico",icon:"🧬",color:"#0D7377",desc:"Líder mundial em diagnóstico veterinário in-house e referência.",
     products:[{name:"Catalyst One Analyzer",ref:"CAT-001",price:"€8.900",unit:"equip.",desc:"25 parâmetros em 8 min."},{name:"ProCyte Dx Hematology",ref:"PCD-002",price:"€6.200",unit:"equip.",desc:"Hemograma completo em 2 min."},{name:"SNAP 4Dx Plus",ref:"SNP-003",price:"€6,50",unit:"teste",desc:"Heartworm, Lyme, Ehrlichia."},{name:"SDMA Renal Test",ref:"SDM-004",price:"€4,80",unit:"teste",desc:"Doença renal precoce."}],
@@ -574,9 +554,11 @@ function SearchHub({ query, onClose, C, t, setMainTab }) {
   const q = query.toLowerCase();
   const [vets, setVets] = useState([]);
   const [cases, setCases] = useState([]);
+  const [items, setItems] = useState([]);
+  const [courses, setCourses] = useState([]);
 
   useEffect(() => {
-    if(!q.trim()){ setVets([]); setCases([]); return; }
+    if(!q.trim()){ setVets([]); setCases([]); setItems([]); setCourses([]); return; }
     let cancelled = false;
     const timer = setTimeout(async () => {
       const { data, error } = await supabase
@@ -604,13 +586,29 @@ function SearchHub({ query, onClose, C, t, setMainTab }) {
       if(cancelled) return;
       if(caseErr){ console.error(caseErr); setCases([]); }
       else setCases(caseData||[]);
+
+      const { data: itemData, error: itemErr } = await supabase
+        .from("market_items")
+        .select("id, title, cat, price, img")
+        .ilike("title", `%${q}%`)
+        .limit(10);
+      if(cancelled) return;
+      if(itemErr){ console.error(itemErr); setItems([]); }
+      else setItems(itemData||[]);
+
+      const { data: courseData, error: courseErr } = await supabase
+        .from("courses")
+        .select("id, title, type, price, icon")
+        .ilike("title", `%${q}%`)
+        .limit(10);
+      if(cancelled) return;
+      if(courseErr){ console.error(courseErr); setCourses([]); }
+      else setCourses(courseData||[]);
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [q]);
 
   if(!q) return null;
-  const courses=COURSES.filter(c=>c.title.toLowerCase().includes(q));
-  const items=MARKET_ITEMS.filter(i=>i.title.toLowerCase().includes(q));
   const total=vets.length+cases.length+courses.length+items.length;
   return (
     <div style={{position:"fixed",inset:0,zIndex:350,background:"rgba(0,0,0,0.4)"}} onClick={onClose}>
@@ -867,6 +865,23 @@ function Home({ C, t, isMobile, setMainTab, me }) {
   const [shareFeedback, setShareFeedback] = useState(null);
   const [visibleCount, setVisibleCount] = useState(2);
   const [following, setFollowing] = useState([]);
+  const [liveNow, setLiveNow] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("live_events")
+        .select("id, title, scheduled_at, duration_minutes, live_event_registrations(user_id)");
+      if(error) return;
+      const now = Date.now();
+      const current = (data||[]).find(e=>{
+        const start = new Date(e.scheduled_at).getTime();
+        const end = start + (e.duration_minutes||60)*60000;
+        return now>=start && now<=end;
+      });
+      setLiveNow(current ? { title: current.title, registrants: (current.live_event_registrations||[]).length } : null);
+    })();
+  }, []);
   const [fbKey, triggerFb] = useFeedback();
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
@@ -974,14 +989,13 @@ function Home({ C, t, isMobile, setMainTab, me }) {
   };
   const typeColor={clinical:C.teal,event:C.purple,post:C.slate};
   const typeLabel={clinical:"🔬 Caso Clínico",event:"📅 Evento",post:"📝 Post"};
-  const liveNow=LIVE_EVENTS.find(e=>e.status==="live");
   return (
     <div style={{maxWidth:isMobile?"100%":680,margin:"0 auto"}}>
       {liveNow&&(
         <div style={{background:`linear-gradient(90deg,${C.rose},${C.rose}bb)`,borderRadius:12,padding:"12px 16px",color:"#fff",display:"flex",alignItems:"center",gap:12,marginBottom:14,cursor:"pointer"}}>
           <div style={{width:8,height:8,borderRadius:"50%",background:"#fff",boxShadow:"0 0 0 3px rgba(255,255,255,0.35)",flexShrink:0}}/>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:700,fontSize:isMobile?12:13}}>AO VIVO · {liveNow.viewers.toLocaleString()} a assistir</div>
+            <div style={{fontWeight:700,fontSize:isMobile?12:13}}>AO VIVO · {liveNow.registrants.toLocaleString()} inscritos</div>
             <div style={{fontSize:isMobile?11:12,opacity:0.85,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{liveNow.title}</div>
           </div>
           <button onClick={()=>setMainTab("learn")} style={{background:"rgba(255,255,255,0.25)",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>▶ Entrar</button>
@@ -1448,6 +1462,15 @@ function Community({ C, t, isMobile, me }) {
   };
   useEffect(() => { loadMeetings(); }, []);
 
+  const [calendarLiveEvents, setCalendarLiveEvents] = useState([]);
+  useEffect(() => {
+    if(sub!=="calendar") return;
+    (async () => {
+      const { data, error } = await supabase.from("live_events").select("id, title, scheduled_at, duration_minutes, icon, host:host_id(full_name)");
+      if(!error) setCalendarLiveEvents(data||[]);
+    })();
+  }, [sub]);
+
   const createMeeting = async () => {
     if(!newMeetingTitle.trim()) return;
     const scheduledAt = newMeetingDate ? new Date(newMeetingDate).toISOString() : null;
@@ -1912,21 +1935,27 @@ function Community({ C, t, isMobile, me }) {
       )}
 
       {sub==="calendar"&&(()=>{
-        // Aggregate real meetings + mock live/learning events into one unified agenda.
-        // Meetings have a real `scheduledAt` timestamp, so they bucket by actual date;
-        // LIVE_EVENTS are still mock/text dates, so they keep the old string-prefix heuristic.
+        // Aggregate real meetings + real live events into one unified agenda,
+        // both bucketed from actual timestamps.
         const now = new Date();
         const tomorrowDate = new Date(now); tomorrowDate.setDate(now.getDate()+1);
         const isSameDay = (d1,d2) => d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate();
+        const bucketOf = (iso) => iso ? (isSameDay(new Date(iso),now)?"today":isSameDay(new Date(iso),tomorrowDate)?"tomorrow":"later") : "later";
 
         const meetingAgenda = meetings.map(m=>({
           title:m.title, host:m.host, when:m.date, kind:m.type, icon:"📹", color:C.teal,
-          bucket: m.scheduledAt ? (isSameDay(new Date(m.scheduledAt),now)?"today":isSameDay(new Date(m.scheduledAt),tomorrowDate)?"tomorrow":"later") : "later",
+          bucket: bucketOf(m.scheduledAt),
         }));
-        const learningEvents = LIVE_EVENTS.map(e=>({
-          title:e.title, host:e.speaker, when:e.date, kind:e.status==="live"?"Ao Vivo":"Formação", icon:e.icon, color:e.status==="live"?C.rose:C.purple,
-          bucket: e.date.toLowerCase().startsWith("hoje")?"today":e.date.toLowerCase().startsWith("amanhã")?"tomorrow":"later",
-        }));
+        const learningEvents = calendarLiveEvents.map(e=>{
+          const start = new Date(e.scheduled_at).getTime();
+          const isLive = Date.now()>=start && Date.now()<=start+60*60000;
+          return {
+            title:e.title, host:e.host?.full_name||"Utilizador",
+            when:new Date(e.scheduled_at).toLocaleString("pt-PT",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}),
+            kind:isLive?"Ao Vivo":"Formação", icon:e.icon, color:isLive?C.rose:C.purple,
+            bucket: bucketOf(e.scheduled_at),
+          };
+        });
         const agenda = [...meetingAgenda, ...learningEvents];
         const today = agenda.filter(a=>a.bucket==="today");
         const tomorrow = agenda.filter(a=>a.bucket==="tomorrow");
@@ -1972,7 +2001,48 @@ function Community({ C, t, isMobile, me }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // LEARN (Live Streaming + Cursos)
 // ══════════════════════════════════════════════════════════════════════════════
-function Learn({ C, t, isMobile }) {
+const formatDuration = (min) => {
+  const m = Number(min)||0;
+  if(m<60) return `${m}min`;
+  const h=Math.floor(m/60), rem=m%60;
+  return rem>0?`${h}h${rem}`:`${h}h`;
+};
+const mapLiveEventRow = (row) => {
+  const start = new Date(row.scheduled_at).getTime();
+  const end = start + (row.duration_minutes||60)*60000;
+  const now = Date.now();
+  const status = now>=start&&now<=end ? "live" : now>end ? "ended" : "upcoming";
+  return {
+    id: row.id,
+    hostId: row.host_id,
+    title: row.title,
+    description: row.description||"",
+    speaker: row.host?.full_name || "Utilizador",
+    speakerAvatar: initialsOf(row.host?.full_name),
+    date: new Date(row.scheduled_at).toLocaleString("pt-PT",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}),
+    duration: formatDuration(row.duration_minutes),
+    price: row.price,
+    tags: row.tags||[],
+    icon: row.icon,
+    cpd: row.cpd,
+    status,
+    registrants: (row.live_event_registrations||[]).length,
+  };
+};
+const mapCourseRow = (row) => ({
+  id: row.id,
+  authorId: row.author_id,
+  title: row.title,
+  type: row.type,
+  price: row.price,
+  duration: row.duration,
+  icon: row.icon,
+  cpd: row.cpd,
+  author: row.author?.full_name || "Utilizador",
+  enrollments: (row.course_enrollments||[]).length,
+});
+
+function Learn({ C, t, isMobile, me }) {
   const [sub, setSub] = useState("live");
   const [liveEv, setLiveEv] = useState(null);
   const [filter, setFilter] = useState("Todos");
@@ -1980,18 +2050,154 @@ function Learn({ C, t, isMobile }) {
   const [courseQuery, setCourseQuery] = useState("");
   const [liveSearch, setLiveSearch] = useState("");
   const [liveQuery, setLiveQuery] = useState("");
-  const [inscribed, setInscribed] = useState([]);
   const [liveChat, setLiveChat] = useState("");
-  const [liveChatHistory, setLiveChatHistory] = useState([
-    {u:"Dra. Ana F.",txt:"Excelente! Quais os valores de referência?",t2:"14:02"},
-    {u:"Dr. Rui S.",txt:"Protocolo muito bem estruturado 👍",t2:"14:03"},
-    {u:"Dra. Marta L.",txt:"Podem partilhar os slides?",t2:"14:05"},
-  ]);
+  const [liveMessages, setLiveMessages] = useState([]);
+  const [liveMessagesLoading, setLiveMessagesLoading] = useState(false);
   const [learnFb, triggerLearnFb] = useFeedback();
 
-  const liveNow = LIVE_EVENTS.filter(e=>e.status==="live"&&(!liveQuery||e.title.toLowerCase().includes(liveQuery.toLowerCase())||e.tags.some(tag=>tag.toLowerCase().includes(liveQuery.toLowerCase()))));
-  const upcoming = LIVE_EVENTS.filter(e=>e.status==="upcoming"&&(!liveQuery||e.title.toLowerCase().includes(liveQuery.toLowerCase())||e.tags.some(tag=>tag.toLowerCase().includes(liveQuery.toLowerCase()))));
-  const filteredCourses = COURSES.filter(c=>{
+  const [liveEvents, setLiveEvents] = useState([]);
+  const [liveEventsLoading, setLiveEventsLoading] = useState(true);
+  const [courses, setCourses] = useState([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+  const [registeredEvents, setRegisteredEvents] = useState([]);
+  const [enrolledCourses, setEnrolledCourses] = useState([]);
+  const [newEventOpen, setNewEventOpen] = useState(false);
+  const [newEvent, setNewEvent] = useState({title:"",description:"",scheduledAt:"",durationMinutes:60,price:"Gratuito",tags:"",icon:"📡",cpd:0});
+  const [newCourseOpen, setNewCourseOpen] = useState(false);
+  const [newCourseForm, setNewCourseForm] = useState({title:"",type:"Curso",price:"Gratuito",duration:"",icon:"📚",cpd:0});
+
+  useEffect(() => {
+    (async () => {
+      setLiveEventsLoading(true);
+      const { data, error } = await supabase
+        .from("live_events")
+        .select("*, host:host_id(full_name), live_event_registrations(user_id)")
+        .order("scheduled_at", { ascending: true });
+      if(!error) setLiveEvents((data||[]).map(mapLiveEventRow));
+      setLiveEventsLoading(false);
+    })();
+    (async () => {
+      setCoursesLoading(true);
+      const { data, error } = await supabase
+        .from("courses")
+        .select("*, author:author_id(full_name), course_enrollments(user_id)")
+        .order("created_at", { ascending: false });
+      if(!error) setCourses((data||[]).map(mapCourseRow));
+      setCoursesLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if(!me?.id) return;
+    (async () => {
+      const { data } = await supabase.from("live_event_registrations").select("event_id").eq("user_id", me.id);
+      setRegisteredEvents((data||[]).map(r=>r.event_id));
+    })();
+    (async () => {
+      const { data } = await supabase.from("course_enrollments").select("course_id").eq("user_id", me.id);
+      setEnrolledCourses((data||[]).map(r=>r.course_id));
+    })();
+  }, [me?.id]);
+
+  useEffect(() => {
+    if(!liveEv) return;
+    let cancelled = false;
+    (async () => {
+      setLiveMessagesLoading(true);
+      const { data, error } = await supabase
+        .from("live_event_messages")
+        .select("id, text, created_at, author:author_id(full_name)")
+        .eq("event_id", liveEv.id)
+        .order("created_at", { ascending: true });
+      if(!cancelled && !error) setLiveMessages((data||[]).map(m=>({
+        u: m.author?.full_name || "Utilizador", txt: m.text,
+        t2: new Date(m.created_at).toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"}),
+      })));
+      setLiveMessagesLoading(false);
+    })();
+    const channel = supabase.channel(`live_event:${liveEv.id}`)
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"live_event_messages", filter:`event_id=eq.${liveEv.id}` }, async payload => {
+        let name = "Eu";
+        if(payload.new.author_id !== me.id){
+          const { data } = await supabase.from("profiles").select("full_name").eq("id", payload.new.author_id).single();
+          name = data?.full_name || "Utilizador";
+        }
+        setLiveMessages(prev=>[...prev, {
+          u: name, txt: payload.new.text,
+          t2: new Date(payload.new.created_at).toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"}),
+        }]);
+      })
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(channel); };
+  }, [liveEv?.id, me?.id]);
+
+  const sendLiveChat = async () => {
+    if(!liveChat.trim()||!liveEv) return;
+    const text = liveChat.trim();
+    setLiveChat("");
+    const { error } = await supabase.from("live_event_messages").insert({ event_id: liveEv.id, author_id: me.id, text });
+    if(error) console.error(error);
+  };
+
+  const toggleEventRegistration = async (eventId) => {
+    const isReg = registeredEvents.includes(eventId);
+    setRegisteredEvents(r=>isReg?r.filter(x=>x!==eventId):[...r,eventId]);
+    setLiveEvents(prev=>prev.map(e=>e.id===eventId?{...e,registrants:e.registrants+(isReg?-1:1)}:e));
+    const { error } = isReg
+      ? await supabase.from("live_event_registrations").delete().eq("event_id",eventId).eq("user_id",me.id)
+      : await supabase.from("live_event_registrations").insert({ event_id: eventId, user_id: me.id });
+    if(error) console.error(error);
+  };
+
+  const toggleCourseEnrollment = async (courseId) => {
+    const isEnr = enrolledCourses.includes(courseId);
+    setEnrolledCourses(c=>isEnr?c.filter(x=>x!==courseId):[...c,courseId]);
+    setCourses(prev=>prev.map(c=>c.id===courseId?{...c,enrollments:c.enrollments+(isEnr?-1:1)}:c));
+    const { error } = isEnr
+      ? await supabase.from("course_enrollments").delete().eq("course_id",courseId).eq("user_id",me.id)
+      : await supabase.from("course_enrollments").insert({ course_id: courseId, user_id: me.id });
+    if(error) console.error(error);
+  };
+
+  const createLiveEvent = async () => {
+    if(!newEvent.title.trim()||!newEvent.scheduledAt) return;
+    const { data, error } = await supabase.from("live_events").insert({
+      host_id: me.id,
+      title: newEvent.title.trim(),
+      description: newEvent.description.trim(),
+      scheduled_at: new Date(newEvent.scheduledAt).toISOString(),
+      duration_minutes: Number(newEvent.durationMinutes)||60,
+      price: newEvent.price.trim()||"Gratuito",
+      tags: newEvent.tags.split(",").map(s=>s.trim()).filter(Boolean),
+      icon: newEvent.icon||"📡",
+      cpd: Number(newEvent.cpd)||0,
+    }).select("*, host:host_id(full_name)").single();
+    if(error){ console.error(error); return; }
+    setLiveEvents(prev=>[mapLiveEventRow(data), ...prev]);
+    setNewEvent({title:"",description:"",scheduledAt:"",durationMinutes:60,price:"Gratuito",tags:"",icon:"📡",cpd:0});
+    setNewEventOpen(false);
+  };
+
+  const createCourse = async () => {
+    if(!newCourseForm.title.trim()) return;
+    const { data, error } = await supabase.from("courses").insert({
+      author_id: me.id,
+      title: newCourseForm.title.trim(),
+      type: newCourseForm.type,
+      price: newCourseForm.price.trim()||"Gratuito",
+      duration: newCourseForm.duration.trim(),
+      icon: newCourseForm.icon||"📚",
+      cpd: Number(newCourseForm.cpd)||0,
+    }).select("*, author:author_id(full_name)").single();
+    if(error){ console.error(error); return; }
+    setCourses(prev=>[mapCourseRow(data), ...prev]);
+    setNewCourseForm({title:"",type:"Curso",price:"Gratuito",duration:"",icon:"📚",cpd:0});
+    setNewCourseOpen(false);
+  };
+
+  const liveNow = liveEvents.filter(e=>e.status==="live"&&(!liveQuery||e.title.toLowerCase().includes(liveQuery.toLowerCase())||e.tags.some(tag=>tag.toLowerCase().includes(liveQuery.toLowerCase()))));
+  const upcoming = liveEvents.filter(e=>e.status==="upcoming"&&(!liveQuery||e.title.toLowerCase().includes(liveQuery.toLowerCase())||e.tags.some(tag=>tag.toLowerCase().includes(liveQuery.toLowerCase()))));
+  const filteredCourses = courses.filter(c=>{
     const matchType = filter==="Todos"||c.type===filter;
     const matchQ = !courseQuery||
       c.title.toLowerCase().includes(courseQuery.toLowerCase())||
@@ -2014,14 +2220,14 @@ function Learn({ C, t, isMobile }) {
         <div style={{background:C.rose,color:"#fff",borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
           <span style={{width:6,height:6,borderRadius:"50%",background:"#fff",display:"inline-block"}}/> AO VIVO
         </div>
-        <div style={{color:C.mist,fontSize:11,flexShrink:0}}>👁 {liveEv.viewers?.toLocaleString()||"—"}</div>
+        <div style={{color:C.mist,fontSize:11,flexShrink:0}}>👥 {liveEv.registrants?.toLocaleString()||0}</div>
       </div>
       <div style={{flex:1,display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
         <div style={{flex:1,background:`linear-gradient(135deg,#0a1218,#095E62,#0a1218)`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",minHeight:isMobile?200:"auto"}}>
           <div style={{width:isMobile?"85%":"65%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:12,padding:isMobile?"20px":"36px 40px",textAlign:"center"}}>
             <div style={{fontSize:isMobile?36:56,marginBottom:10}}>{liveEv.icon}</div>
-            <div style={{color:"#fff",fontWeight:800,fontSize:isMobile?14:20,lineHeight:1.3,marginBottom:8}}>{liveEv.slideTitle}</div>
-            <div style={{color:C.mintD,fontSize:isMobile?11:13,lineHeight:1.6}}>{liveEv.slideSubtitle}</div>
+            <div style={{color:"#fff",fontWeight:800,fontSize:isMobile?14:20,lineHeight:1.3,marginBottom:8}}>{liveEv.title}</div>
+            <div style={{color:C.mintD,fontSize:isMobile?11:13,lineHeight:1.6}}>{liveEv.description}</div>
           </div>
           <div style={{position:"absolute",bottom:isMobile?8:14,right:isMobile?8:14,width:isMobile?60:100,height:isMobile?44:70,background:"linear-gradient(135deg,#0F1923,#1C2B35)",borderRadius:8,border:"2px solid rgba(255,255,255,0.15)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3}}>
             <div style={{width:isMobile?22:32,height:isMobile?22:32,borderRadius:"50%",background:`linear-gradient(135deg,${C.teal},${C.tealL})`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:isMobile?9:12}}>{liveEv.speakerAvatar}</div>
@@ -2035,15 +2241,17 @@ function Learn({ C, t, isMobile }) {
         <div style={{width:isMobile?"100%":280,borderLeft:isMobile?"none":"1px solid rgba(255,255,255,0.07)",display:"flex",flexDirection:"column",flexShrink:0,maxHeight:isMobile?220:"auto"}}>
           <div style={{padding:"10px 14px",borderBottom:"1px solid rgba(255,255,255,0.07)",fontWeight:700,fontSize:13,color:"#fff"}}>💬 Chat ao Vivo</div>
           <div style={{flex:1,overflowY:"auto",padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
-            {liveChatHistory.map((m,i)=>(
+            {liveMessagesLoading&&<div style={{fontSize:12,color:"rgba(255,255,255,0.5)",textAlign:"center"}}>A carregar…</div>}
+            {!liveMessagesLoading&&liveMessages.length===0&&<div style={{fontSize:12,color:"rgba(255,255,255,0.5)",textAlign:"center"}}>Seja o primeiro a comentar 👋</div>}
+            {liveMessages.map((m,i)=>(
               <div key={i}><div style={{fontSize:11,fontWeight:700,color:C.amber,marginBottom:2}}>{m.u} <span style={{color:"rgba(255,255,255,0.4)",fontWeight:400}}>{m.t2}</span></div><div style={{fontSize:12,color:"rgba(255,255,255,0.85)"}}>{m.txt}</div></div>
             ))}
           </div>
           <div style={{padding:"10px 12px",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",gap:8}}>
             <input value={liveChat} onChange={e=>setLiveChat(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&liveChat.trim()){setLiveChatHistory(h=>[...h,{u:"Dr. Eu",txt:liveChat.trim(),t2:new Date().toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"})}]);setLiveChat("");}}}
+              onKeyDown={e=>{if(e.key==="Enter") sendLiveChat();}}
               placeholder="Chat…" style={{flex:1,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 10px",color:"#fff",fontSize:12,outline:"none"}}/>
-            <button onClick={()=>{if(!liveChat.trim())return;setLiveChatHistory(h=>[...h,{u:"Dr. Eu",txt:liveChat.trim(),t2:new Date().toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"})}]);setLiveChat("");}}
+            <button onClick={sendLiveChat}
               aria-label="Enviar mensagem no chat"
               style={{background:C.teal,border:"none",borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center"}}><Icon d={ic.send} size={14} color="#fff"/></button>
           </div>
@@ -2056,13 +2264,36 @@ function Learn({ C, t, isMobile }) {
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text}}>Formação Profissional</div>
-        <button onClick={()=>triggerLearnFb("pub")} style={btn(C,"primary",isMobile)}>{learnFb==="pub"?t("published"):"+ "+t("publish")}</button>
+        {sub!=="promo"&&<button onClick={()=>{if(sub==="live")setNewEventOpen(v=>!v);else setNewCourseOpen(v=>!v);}} style={btn(C,"primary",isMobile)}>
+          {(sub==="live"&&newEventOpen)||(sub==="courses"&&newCourseOpen)?"✕ Cancelar":"+ "+t("publish")}
+        </button>}
       </div>
       <div style={{display:"flex",gap:0,background:C.bg,borderRadius:10,padding:4,marginBottom:18}}>
         {SUBS.map(s=><button key={s.id} onClick={()=>setSub(s.id)} style={{flex:1,padding:"8px 10px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:sub===s.id?700:500,fontSize:isMobile?11:12.5,background:sub===s.id?C.surface:"transparent",color:sub===s.id?C.teal:C.sub,boxShadow:sub===s.id?"0 1px 4px rgba(0,0,0,0.1)":"none",transition:"all .15s",whiteSpace:"nowrap"}}>{s.label}</button>)}
       </div>
       {sub==="live"&&(
         <div>
+          {newEventOpen&&(
+            <div style={{...card(C),border:`1.5px solid ${C.teal}`,marginBottom:18}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.teal,marginBottom:10}}>Novo Evento ao Vivo</div>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
+                <input value={newEvent.title} onChange={e=>setNewEvent(p=>({...p,title:e.target.value}))} placeholder="Título" style={{...inp(C),fontSize:13}}/>
+                <input type="datetime-local" value={newEvent.scheduledAt} onChange={e=>setNewEvent(p=>({...p,scheduledAt:e.target.value}))} style={{...inp(C),fontSize:13}}/>
+                <input type="number" min={15} step={15} value={newEvent.durationMinutes} onChange={e=>setNewEvent(p=>({...p,durationMinutes:e.target.value}))} placeholder="Duração (min)" style={{...inp(C),fontSize:13}}/>
+                <input value={newEvent.price} onChange={e=>setNewEvent(p=>({...p,price:e.target.value}))} placeholder="Preço (ex: Gratuito)" style={{...inp(C),fontSize:13}}/>
+                <input value={newEvent.tags} onChange={e=>setNewEvent(p=>({...p,tags:e.target.value}))} placeholder="Tags (separadas por vírgula)" style={{...inp(C),fontSize:13}}/>
+                <div style={{display:"flex",gap:10}}>
+                  <input type="number" min={0} value={newEvent.cpd} onChange={e=>setNewEvent(p=>({...p,cpd:e.target.value}))} placeholder="CPD" style={{...inp(C),fontSize:13,flex:1}}/>
+                  <input value={newEvent.icon} onChange={e=>setNewEvent(p=>({...p,icon:e.target.value}))} maxLength={2} placeholder="📡" style={{...inp(C),fontSize:20,textAlign:"center",width:60}}/>
+                </div>
+              </div>
+              <textarea value={newEvent.description} onChange={e=>setNewEvent(p=>({...p,description:e.target.value}))} rows={2} placeholder="Descrição / programa" style={{...inp(C),fontSize:13,resize:"vertical",marginBottom:12}}/>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button onClick={()=>setNewEventOpen(false)} style={btn(C,"outline",true)}>Cancelar</button>
+                <button onClick={createLiveEvent} disabled={!newEvent.title.trim()||!newEvent.scheduledAt} style={{...btn(C,"primary",true),opacity:(!newEvent.title.trim()||!newEvent.scheduledAt)?0.5:1}}>📡 Agendar Evento</button>
+              </div>
+            </div>
+          )}
           {/* Search bar for live section */}
           <SearchBar
             value={liveSearch}
@@ -2072,6 +2303,7 @@ function Learn({ C, t, isMobile }) {
             C={C}
             style={{marginBottom:18}}
           />
+          {liveEventsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar eventos…</div>}
           {liveQuery&&liveNow.length===0&&upcoming.length===0&&(
             <div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:14}}>
               <div style={{fontSize:36,marginBottom:10}}>🔍</div>
@@ -2090,7 +2322,7 @@ function Learn({ C, t, isMobile }) {
                     <div style={{height:isMobile?100:130,background:"linear-gradient(135deg,#0F1923,#095E62)",borderRadius:10,marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?38:50,position:"relative",overflow:"hidden"}}>
                       {ev.icon}
                       <div style={{position:"absolute",top:10,left:10,background:C.rose,color:"#fff",borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",gap:4}}><span style={{width:5,height:5,borderRadius:"50%",background:"#fff",display:"inline-block"}}/> AO VIVO</div>
-                      <div style={{position:"absolute",bottom:10,right:10,background:"rgba(0,0,0,0.6)",color:"#fff",borderRadius:6,padding:"3px 8px",fontSize:11}}>👁 {ev.viewers.toLocaleString()}</div>
+                      <div style={{position:"absolute",bottom:10,right:10,background:"rgba(0,0,0,0.6)",color:"#fff",borderRadius:6,padding:"3px 8px",fontSize:11}}>👥 {ev.registrants.toLocaleString()}</div>
                     </div>
                     <div style={{display:"flex",gap:5,marginBottom:6,flexWrap:"wrap"}}>{ev.tags.map(tg=><span key={tg} style={tag(C.teal)}>#{tg}</span>)}</div>
                     <div style={{fontWeight:700,fontSize:isMobile?13:14,color:C.text,marginBottom:3}}>{ev.title}</div>
@@ -2105,6 +2337,7 @@ function Learn({ C, t, isMobile }) {
             </div>
           )}
           <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:12}}>📅 Próximos Eventos</div>
+          {!liveEventsLoading&&!liveQuery&&liveNow.length===0&&upcoming.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Ainda sem eventos agendados.</div>}
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:14,marginBottom:18}}>
             {upcoming.map(ev=>(
               <div key={ev.id} style={{...card(C,{marginBottom:0}),border:`1.5px solid ${C.border}`}}>
@@ -2115,11 +2348,12 @@ function Learn({ C, t, isMobile }) {
                 <div style={{fontWeight:700,fontSize:isMobile?13:14,color:C.text,marginBottom:3}}>{ev.title}</div>
                 <div style={{fontSize:11,color:C.sub,marginBottom:4}}>{ev.speaker} · 🎓 {ev.cpd} CPD</div>
                 <div style={{fontSize:11,color:C.sub,marginBottom:10}}>📅 {ev.date} · ⏱ {ev.duration}</div>
-                <div style={{background:C.bg,borderRadius:8,padding:"8px 10px",marginBottom:12,fontSize:11,color:C.sub,lineHeight:1.5}}><span style={{fontWeight:700}}>Programa: </span>{ev.program}</div>
+                {ev.description&&<div style={{background:C.bg,borderRadius:8,padding:"8px 10px",marginBottom:12,fontSize:11,color:C.sub,lineHeight:1.5}}><span style={{fontWeight:700}}>Descrição: </span>{ev.description}</div>}
+                <div style={{fontSize:11,color:C.sub,marginBottom:10}}>👥 {ev.registrants} inscrito{ev.registrants!==1?"s":""}</div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <span style={{fontWeight:800,fontSize:15,color:ev.price==="Gratuito"?C.emerald:C.teal}}>{ev.price}</span>
-                    <button onClick={()=>{setInscribed(p=>p.includes(ev.id)?p.filter(x=>x!==ev.id):[...p,ev.id]);}} style={{...btn(C,"primary",true),background:inscribed.includes(ev.id)?C.emerald:C.teal}}>
-                      {inscribed.includes(ev.id)?"✓ "+t("enrolled"):"🔔 "+t("enroll")}
+                    <button onClick={()=>toggleEventRegistration(ev.id)} style={{...btn(C,"primary",true),background:registeredEvents.includes(ev.id)?C.emerald:C.teal}}>
+                      {registeredEvents.includes(ev.id)?"✓ "+t("enrolled"):"🔔 "+t("enroll")}
                     </button>
                 </div>
               </div>
@@ -2156,6 +2390,27 @@ function Learn({ C, t, isMobile }) {
       )}
       {sub==="courses"&&(
         <div>
+          {newCourseOpen&&(
+            <div style={{...card(C),border:`1.5px solid ${C.teal}`,marginBottom:18}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.teal,marginBottom:10}}>Novo Curso / Recurso</div>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+                <input value={newCourseForm.title} onChange={e=>setNewCourseForm(p=>({...p,title:e.target.value}))} placeholder="Título" style={{...inp(C),fontSize:13}}/>
+                <select value={newCourseForm.type} onChange={e=>setNewCourseForm(p=>({...p,type:e.target.value}))} style={{...inp(C),fontSize:13}}>
+                  {["Curso","Webinar","Certificação","Masterclass","E-book"].map(ty=><option key={ty}>{ty}</option>)}
+                </select>
+                <input value={newCourseForm.price} onChange={e=>setNewCourseForm(p=>({...p,price:e.target.value}))} placeholder="Preço (ex: €249)" style={{...inp(C),fontSize:13}}/>
+                <input value={newCourseForm.duration} onChange={e=>setNewCourseForm(p=>({...p,duration:e.target.value}))} placeholder="Duração (ex: 32h)" style={{...inp(C),fontSize:13}}/>
+                <div style={{display:"flex",gap:10}}>
+                  <input type="number" min={0} value={newCourseForm.cpd} onChange={e=>setNewCourseForm(p=>({...p,cpd:e.target.value}))} placeholder="CPD" style={{...inp(C),fontSize:13,flex:1}}/>
+                  <input value={newCourseForm.icon} onChange={e=>setNewCourseForm(p=>({...p,icon:e.target.value}))} maxLength={2} placeholder="📚" style={{...inp(C),fontSize:20,textAlign:"center",width:60}}/>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button onClick={()=>setNewCourseOpen(false)} style={btn(C,"outline",true)}>Cancelar</button>
+                <button onClick={createCourse} disabled={!newCourseForm.title.trim()} style={{...btn(C,"primary",true),opacity:!newCourseForm.title.trim()?0.5:1}}>🎓 Publicar</button>
+              </div>
+            </div>
+          )}
           {/* Search bar — live filter as you type + submit on Enter/button */}
           <SearchBar
             value={courseSearch}
@@ -2165,7 +2420,7 @@ function Learn({ C, t, isMobile }) {
             C={C}
             style={{marginBottom:14}}
           />
-          {/* Type filter pills — values match COURSES data exactly */}
+          {/* Type filter pills — values match the courses.type check constraint */}
           <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
             {["Todos","Curso","Webinar","Certificação","Masterclass","E-book"].map(f=>(
               <button key={f} onClick={()=>setFilter(f)} style={{background:filter===f?C.teal:C.surface,color:filter===f?"#fff":C.sub,border:`1px solid ${filter===f?C.teal:C.border}`,borderRadius:18,padding:"5px 12px",fontSize:12,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
@@ -2174,10 +2429,11 @@ function Learn({ C, t, isMobile }) {
             ))}
           </div>
           {/* Empty state */}
-          {filteredCourses.length===0&&(
+          {coursesLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar cursos…</div>}
+          {!coursesLoading&&filteredCourses.length===0&&(
             <div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:14}}>
               <div style={{fontSize:36,marginBottom:10}}>📚</div>
-              Sem resultados para "<strong>{courseQuery||filter}</strong>"
+              {courses.length===0?"Ainda sem cursos publicados.":<>Sem resultados para "<strong>{courseQuery||filter}</strong>"</>}
               <div style={{marginTop:12}}>
                 <button onClick={()=>{setCourseSearch("");setCourseQuery("");setFilter("Todos");}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",cursor:"pointer",color:C.teal,fontSize:12,fontWeight:600}}>Limpar filtros</button>
               </div>
@@ -2189,14 +2445,12 @@ function Learn({ C, t, isMobile }) {
                 <div style={{height:isMobile?80:100,background:`linear-gradient(135deg,${C.teal}18,${C.purple}18)`,borderRadius:10,marginBottom:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?36:44}}>{c.icon}</div>
                 <span style={tag(C.purple)}>{c.type}</span>
                 <div style={{fontWeight:700,fontSize:isMobile?13:14,color:C.text,margin:"8px 0 3px"}}>{c.title}</div>
-                <div style={{fontSize:11,color:C.sub,marginBottom:6}}>por {c.author} · {c.duration}{c.cpd>0?` · 🎓 ${c.cpd} CPD`:""}</div>
-                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:12}}>
-                  <Icon d={ic.star} size={12} color={C.gold}/><span style={{fontSize:12,fontWeight:600,color:C.text}}>{c.rating}</span><span style={{fontSize:11,color:C.sub}}>({c.reviews})</span>
-                </div>
+                <div style={{fontSize:11,color:C.sub,marginBottom:6}}>por {c.author}{c.duration?` · ${c.duration}`:""}{c.cpd>0?` · 🎓 ${c.cpd} CPD`:""}</div>
+                <div style={{fontSize:11,color:C.sub,marginBottom:12}}>👥 {c.enrollments} inscrito{c.enrollments!==1?"s":""}</div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div style={{fontWeight:800,fontSize:17,color:C.teal}}>{c.price}</div>
-                  <button onClick={()=>{setInscribed(p=>p.includes(c.id+100)?p.filter(x=>x!==c.id+100):[...p,c.id+100]);}} style={{...btn(C,"primary",true),background:inscribed.includes(c.id+100)?C.emerald:C.teal}}>
-                    {inscribed.includes(c.id+100)?"✓ "+t("enrolled"):"Inscrever"}
+                  <button onClick={()=>toggleCourseEnrollment(c.id)} style={{...btn(C,"primary",true),background:enrolledCourses.includes(c.id)?C.emerald:C.teal}}>
+                    {enrolledCourses.includes(c.id)?"✓ "+t("enrolled"):"Inscrever"}
                   </button>
                 </div>
               </div>
@@ -2527,8 +2781,20 @@ const mapJobRow = (row, me) => ({
   urgent: row.urgent,
   match: computeJobMatch(row, me),
 });
+const mapMarketItemRow = (row) => ({
+  id: row.id,
+  sellerId: row.seller_id,
+  title: row.title,
+  cat: row.cat,
+  price: row.price,
+  cond: row.cond,
+  loc: row.loc,
+  img: row.img,
+  desc: row.description,
+  seller: row.seller?.full_name || "Utilizador",
+});
 
-function Market({ C, t, isMobile, me }) {
+function Market({ C, t, isMobile, me, setMainTab }) {
   const [sub, setSub] = useState("marketplace");
   const [priceMax, setPriceMax] = useState(1000000);
   const [selSupplier, setSelSupplier] = useState(null);
@@ -2549,11 +2815,13 @@ function Market({ C, t, isMobile, me }) {
   const [savedJobs, setSavedJobs] = useState([]);
   const [newAdOpen, setNewAdOpen] = useState(false);
   const [newAd, setNewAd] = useState({title:"",cat:"Equipamento",price:"",cond:"Novo",loc:"",desc:"",img:""});
-  const [marketItems, setMarketItems] = useState(MARKET_ITEMS);
+  const [marketItems, setMarketItems] = useState([]);
+  const [marketItemsLoading, setMarketItemsLoading] = useState(true);
   const [newJobOpen, setNewJobOpen] = useState(false);
   const [newJob, setNewJob] = useState({title:"",company:"",type:"Full-time",loc:"",salary:"",desc:""});
   const [jobItems, setJobItems] = useState([]);
   const [jobsLoading, setJobsLoading] = useState(true);
+  const [appliedJobs, setAppliedJobs] = useState([]);
   const EMOJI_MAP = {"Equipamento":"🔬","Negócio":"🏥","Stock":"💊"};
   const CONDITIONS = ["Novo","Usado - Ótimo","Usado - Bom","Usado - Razoável","Em funcionamento"];
   const CATEGORIES = ["Equipamento","Negócio","Stock"];
@@ -2582,6 +2850,15 @@ function Market({ C, t, isMobile, me }) {
     loadSavedJobs();
   }, [me.id]);
 
+  useEffect(() => {
+    const loadAppliedJobs = async () => {
+      const { data, error } = await supabase.from("job_applications").select("job_id").eq("applicant_id", me.id);
+      if(error){ console.error(error); return; }
+      setAppliedJobs((data||[]).map(r=>r.job_id));
+    };
+    loadAppliedJobs();
+  }, [me.id]);
+
   const toggleSaveJob = async (jobId) => {
     const isSaved = savedJobs.includes(jobId);
     setSavedJobs(s=>isSaved?s.filter(x=>x!==jobId):[...s,jobId]);
@@ -2589,6 +2866,14 @@ function Market({ C, t, isMobile, me }) {
       ? await supabase.from("saved_jobs").delete().eq("job_id", jobId).eq("user_id", me.id)
       : await supabase.from("saved_jobs").insert({ job_id: jobId, user_id: me.id });
     if(error) console.error(error);
+  };
+
+  const applyToJob = async (jobId) => {
+    if(appliedJobs.includes(jobId)){ triggerMktFb("apply_"+jobId); return; }
+    setAppliedJobs(a=>[...a,jobId]);
+    const { error } = await supabase.from("job_applications").insert({ job_id: jobId, applicant_id: me.id });
+    if(error && error.code !== "23505") { console.error(error); setAppliedJobs(a=>a.filter(x=>x!==jobId)); return; }
+    triggerMktFb("apply_"+jobId);
   };
 
   const createJob = async () => {
@@ -2654,6 +2939,51 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
   };
   const [marketLocSearch, setMarketLocSearch] = useState("");
   const [marketLocQuery, setMarketLocQuery] = useState("");
+
+  const loadMarketItems = async () => {
+    setMarketItemsLoading(true);
+    const { data, error } = await supabase
+      .from("market_items")
+      .select("id, seller_id, title, cat, price, cond, loc, img, description, seller:seller_id(full_name)")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if(error){ console.error(error); setMarketItemsLoading(false); return; }
+    setMarketItems((data||[]).map(mapMarketItemRow));
+    setMarketItemsLoading(false);
+  };
+  useEffect(() => { loadMarketItems(); }, []);
+
+  const createMarketItem = async () => {
+    if(!newAd.title.trim()||!newAd.price.trim()||!newAd.loc.trim()){
+      alert("Por favor preencha título, preço e localização.");
+      return;
+    }
+    const { data, error } = await supabase.from("market_items").insert({
+      seller_id: me.id,
+      title: newAd.title.trim(),
+      cat: newAd.cat,
+      price: newAd.price.trim(),
+      cond: newAd.cond,
+      loc: newAd.loc.trim(),
+      img: newAd.img||EMOJI_MAP[newAd.cat]||"📦",
+      description: newAd.desc,
+    }).select("*, seller:seller_id(full_name)").single();
+    if(error){ console.error(error); alert("Erro ao publicar anúncio: "+error.message); return; }
+    setMarketItems(prev=>[mapMarketItemRow(data), ...prev]);
+    setMarketVisible(v=>v+1);
+    setNewAd({title:"",cat:"Equipamento",price:"",cond:"Novo",loc:"",desc:"",img:""});
+    setNewAdOpen(false);
+  };
+
+  const sendContactMessage = async () => {
+    if(!contactMsg.trim()||!contactItem) return;
+    const { data: convId, error } = await supabase.rpc("get_or_create_dm", { other_user_id: contactItem.sellerId });
+    if(error){ console.error(error); return; }
+    const { error: msgErr } = await supabase.from("messages").insert({ conversation_id: convId, author_id: me.id, text: contactMsg.trim() });
+    if(msgErr){ console.error(msgErr); return; }
+    setContactSent(true);
+  };
+
   const filteredMarket = marketItems.filter(item=>
     !marketLocQuery||item.loc.toLowerCase().includes(marketLocQuery.toLowerCase())||item.seller.toLowerCase().includes(marketLocQuery.toLowerCase())
   );
@@ -2745,29 +3075,7 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
               <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                 <button onClick={()=>{setNewAdOpen(false);setNewAd({title:"",cat:"Equipamento",price:"",cond:"Novo",loc:"",desc:"",img:""}); }} style={btn(C,"outline",true)}>Cancelar</button>
                 <button
-                  onClick={()=>{
-                    if(!newAd.title.trim()||!newAd.price.trim()||!newAd.loc.trim()){
-                      alert("Por favor preencha título, preço e localização.");
-                      return;
-                    }
-                    const item = {
-                      id: Date.now(),
-                      title: newAd.title.trim(),
-                      cat: newAd.cat,
-                      price: newAd.price.trim(),
-                      cond: newAd.cond,
-                      loc: newAd.loc.trim(),
-                      seller: "Dra. Ana Ferreira",
-                      img: newAd.img||EMOJI_MAP[newAd.cat]||"📦",
-                      rating: 5.0,
-                      verified: true,
-                      desc: newAd.desc,
-                    };
-                    setMarketItems(prev=>[item,...prev]);
-                    setMarketVisible(v=>v+1);
-                    setNewAd({title:"",cat:"Equipamento",price:"",cond:"Novo",loc:"",desc:"",img:""});
-                    setNewAdOpen(false);
-                  }}
+                  onClick={createMarketItem}
                   disabled={!newAd.title.trim()||!newAd.price.trim()||!newAd.loc.trim()}
                   style={{...btn(C,"primary",true),opacity:(!newAd.title.trim()||!newAd.price.trim()||!newAd.loc.trim())?0.5:1}}>
                   📢 Publicar Anúncio
@@ -2799,7 +3107,9 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                 <select style={{...inp(C),fontSize:12,padding:"6px 10px"}}>{["Todos","Equipamento","Negócio","Stock"].map(c=><option key={c}>{c}</option>)}</select></div>
             </div>
           </div>
-          {marketLocQuery&&filteredMarket.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Sem anúncios em "{marketLocQuery}".</div>}
+          {marketItemsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar anúncios…</div>}
+          {!marketItemsLoading&&marketLocQuery&&filteredMarket.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Sem anúncios em "{marketLocQuery}".</div>}
+          {!marketItemsLoading&&!marketLocQuery&&filteredMarket.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Ainda sem anúncios no marketplace.</div>}
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:14}}>
             {filteredMarket.slice(0,marketVisible).map(item=>(
               <div key={item.id} style={card(C,{marginBottom:0})}>
@@ -2807,17 +3117,13 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                 <div style={{display:"flex",gap:5,marginBottom:6,flexWrap:"wrap"}}>
                   <span style={tag(catC[item.cat]||C.sub)}>{item.cat}</span>
                   <span style={tag(C.sub)}>{item.cond}</span>
-                  {item.verified&&<span style={tag(C.emerald)}>✅ Verificado</span>}
                 </div>
                 <div style={{fontWeight:700,fontSize:isMobile?13:14,color:C.text,marginBottom:4}}>{item.title}</div>
-                <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:4}}>
-                  <Icon d={ic.star} size={12} color={C.gold}/><span style={{fontSize:12,color:C.text,fontWeight:600}}>{item.rating}</span>
-                </div>
                 <div style={{fontSize:11,color:C.sub,marginBottom:12}}>📍 {item.loc} · {item.seller}</div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                   <div style={{fontWeight:800,fontSize:17,color:C.teal}}>{item.price}</div>
                   <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>{setContactItem(item);setContactMsg(`Olá! Tenho interesse no anúncio "${item.title}" (${item.price}). Ainda está disponível?`);setContactSent(false);}} style={btn(C,"outline",true)}>💬 {t("contact")}</button>
+                    {item.sellerId!==me.id&&<button onClick={()=>{setContactItem(item);setContactMsg(`Olá! Tenho interesse no anúncio "${item.title}" (${item.price}). Ainda está disponível?`);setContactSent(false);}} style={btn(C,"outline",true)}>💬 {t("contact")}</button>}
                     <button onClick={()=>triggerMktFb("vermais_"+item.id)} style={btn(C,"primary",true)}>{mktFb===("vermais_"+item.id)?"↗️ A abrir…":"Ver mais"}</button>
                   </div>
                 </div>
@@ -3030,9 +3336,9 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                   style={{...btn(C,savedJobs.includes(j.id)?"primary":"outline",true),background:savedJobs.includes(j.id)?C.amber:undefined}}>
                   {savedJobs.includes(j.id)?"★ Guardado":t("save")}
                 </button>
-                <button onClick={()=>triggerMktFb("apply_"+j.id)}
-                  style={{...btn(C,"primary",true),background:mktFb===("apply_"+j.id)?C.emerald:C.teal}}>
-                  {mktFb===("apply_"+j.id)?"✓ Candidatura enviada!":t("apply")}
+                <button onClick={()=>applyToJob(j.id)}
+                  style={{...btn(C,"primary",true),background:(mktFb===("apply_"+j.id)||appliedJobs.includes(j.id))?C.emerald:C.teal}}>
+                  {mktFb===("apply_"+j.id)?"✓ Candidatura enviada!":appliedJobs.includes(j.id)?"✓ Candidatou-se":t("apply")}
                 </button>
               </div>
             </div>
@@ -3104,7 +3410,10 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                   <div style={{fontSize:36,marginBottom:10}}>✅</div>
                   <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>Mensagem enviada!</div>
                   <div style={{fontSize:12,color:C.sub}}>{contactItem.seller} foi notificado e a conversa ficou associada a este anúncio.</div>
-                  <button onClick={()=>setContactItem(null)} style={{...btn(C,"primary"),marginTop:16}}>Fechar</button>
+                  <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:16}}>
+                    <button onClick={()=>setContactItem(null)} style={btn(C,"outline")}>Fechar</button>
+                    <button onClick={()=>{setContactItem(null);setMainTab("community");}} style={btn(C,"primary")}>Ver conversa</button>
+                  </div>
                 </div>
               ):(
                 <>
@@ -3115,7 +3424,7 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                     style={{...inp(C),fontSize:13,resize:"vertical",marginBottom:14}}/>
                   <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
                     <button onClick={()=>setContactItem(null)} style={btn(C,"outline",true)}>Cancelar</button>
-                    <button onClick={()=>setContactSent(true)} disabled={!contactMsg.trim()}
+                    <button onClick={sendContactMessage} disabled={!contactMsg.trim()}
                       style={{...btn(C,"primary",true),opacity:!contactMsg.trim()?0.5:1}}>📨 Enviar</button>
                   </div>
                 </>
@@ -3156,16 +3465,36 @@ function LabField({p, values, onChange, C}) {
   );
 }
 
-function AIDiagnosis({ C, t, isMobile }) {
+const mapHistoryRow = (row) => ({
+  id: row.id,
+  date: new Date(row.created_at).toLocaleString("pt-PT",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}),
+  species: row.species, breed: row.breed, age: row.age, sex: row.sex,
+  symptoms: row.symptoms, result: row.result,
+});
+
+function AIDiagnosis({ C, t, isMobile, me }) {
   const [activeTab,setActiveTab]=useState("clinical");
   const [species,setSpecies]=useState(""); const [age,setAge]=useState(""); const [sex,setSex]=useState(""); const [breed,setBreed]=useState("");
   const [symptoms,setSymptoms]=useState([]); const [freeSymp,setFreeSymp]=useState(""); const [extra,setExtra]=useState("");
   const [hemo,setHemo]=useState({}); const [bio,setBio]=useState({}); const [hor,setHor]=useState({});
   const [urine,setUrine]=useState({}); const [feces,setFeces]=useState({});
   const [loading,setLoading]=useState(false); const [result,setResult]=useState(null); const [error,setError]=useState(null);
-  const [history, setHistory] = usePersistentState("vc_ai_history", []);
+  const [history, setHistory] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [compareIds, setCompareIds] = useState([]);
+
+  useEffect(() => {
+    if(!me?.id) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from("diagnosis_history")
+        .select("id, species, breed, age, sex, symptoms, result, created_at")
+        .eq("author_id", me.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if(!error) setHistory((data||[]).map(mapHistoryRow));
+    })();
+  }, [me?.id]);
 
   const toggleSym=s=>setSymptoms(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s]);
   const countFilled=obj=>Object.values(obj).filter(v=>v&&v!=="").length;
@@ -3226,13 +3555,14 @@ function AIDiagnosis({ C, t, isMobile }) {
       setResult(parsed);
 
       // Save to history
-      setHistory(prev => [{
-        id: Date.now(),
-        date: new Date().toLocaleString("pt-PT", {day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}),
-        species, breed, age, sex,
-        symptoms: allSymp,
-        result: parsed,
-      }, ...prev].slice(0, 20));
+      if(me?.id){
+        const { data: row, error: histErr } = await supabase
+          .from("diagnosis_history")
+          .insert({ author_id: me.id, species, breed, age, sex, symptoms: allSymp, result: parsed })
+          .select().single();
+        if(histErr) console.error(histErr);
+        else setHistory(prev => [mapHistoryRow(row), ...prev].slice(0, 20));
+      }
 
     } catch (err) {
       setError(err.message || "Erro desconhecido.");
@@ -3453,7 +3783,7 @@ function AIDiagnosis({ C, t, isMobile }) {
                         </div>
                         <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                           <span style={tag(urgC(h.result.urgencia))}>{h.result.urgencia}</span>
-                          <button onClick={e=>{e.stopPropagation();setHistory(prev=>prev.filter(x=>x.id!==h.id));setCompareIds(prev=>prev.filter(x=>x!==h.id));}}
+                          <button onClick={e=>{e.stopPropagation();setHistory(prev=>prev.filter(x=>x.id!==h.id));setCompareIds(prev=>prev.filter(x=>x!==h.id));supabase.from("diagnosis_history").delete().eq("id",h.id).then(({error})=>{if(error)console.error(error);});}}
                             style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:14}} aria-label="Eliminar do histórico">🗑️</button>
                         </div>
                       </div>
@@ -3828,7 +4158,7 @@ function Clinic({ C, t, isMobile, me, setMainTab }) {
       <div style={{display:"flex",gap:0,background:C.bg,borderRadius:10,padding:4,marginBottom:18,overflowX:"auto",flexShrink:0}}>
         {SUBS.map(s=><button key={s.id} onClick={()=>setSub(s.id)} style={{flex:"0 0 auto",padding:"8px 10px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:sub===s.id?700:500,fontSize:isMobile?10.5:12,background:sub===s.id?C.surface:"transparent",color:sub===s.id?C.teal:C.sub,boxShadow:sub===s.id?"0 1px 4px rgba(0,0,0,0.1)":"none",transition:"all .15s",whiteSpace:"nowrap"}}>{s.label}</button>)}
       </div>
-      {sub==="ai"&&<AIDiagnosis C={C} t={t} isMobile={isMobile}/>}
+      {sub==="ai"&&<AIDiagnosis C={C} t={t} isMobile={isMobile} me={me}/>}
       {sub==="calc"&&<ClinicalCalc C={C} t={t} isMobile={isMobile}/>}
       {sub==="drugs"&&<DrugDB C={C} t={t} isMobile={isMobile}/>}
       {sub==="protocols"&&<Protocols C={C} t={t} isMobile={isMobile}/>}
