@@ -909,6 +909,31 @@ function Home({ C, t, isMobile, setMainTab, me }) {
   const [following, setFollowing] = useState([]);
   const [liveNow, setLiveNow] = useState(null);
 
+  // "Seguir": the user's follow list lives in the follows table.
+  useEffect(() => {
+    if(!me?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.from("follows").select("following_id").eq("follower_id", me.id);
+      if(cancelled) return;
+      if(error){ console.error(error); return; }
+      setFollowing((data||[]).map(r => r.following_id));
+    })();
+    return () => { cancelled = true; };
+  }, [me?.id]);
+
+  const toggleFollow = async (userId) => {
+    const wasFollowing = following.includes(userId);
+    setFollowing(f => wasFollowing ? f.filter(x => x !== userId) : [...f, userId]);
+    const { error } = wasFollowing
+      ? await supabase.from("follows").delete().eq("follower_id", me.id).eq("following_id", userId)
+      : await supabase.from("follows").insert({ follower_id: me.id, following_id: userId });
+    if(error){
+      console.error(error);
+      setFollowing(f => wasFollowing ? [...f, userId] : f.filter(x => x !== userId));
+    }
+  };
+
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
@@ -1142,7 +1167,7 @@ function Home({ C, t, isMobile, setMainTab, me }) {
                 <div style={{fontSize:11,color:C.sub,marginBottom:p.type!=="post"?5:0}}>{p.user.spec} · {p.time}</div>
                 {p.type!=="post"&&<span style={tag(typeColor[p.type]||C.sub)}>{typeLabel[p.type]||""}</span>}
               </div>
-              <button onClick={()=>setFollowing(f=>f.includes(p.user.id)?f.filter(x=>x!==p.user.id):[...f,p.user.id])}
+              <button onClick={()=>toggleFollow(p.user.id)}
                 style={{...btn(C,following.includes(p.user.id)?"primary":"outline",true),fontSize:11,flexShrink:0,marginTop:2}}>
                 {following.includes(p.user.id)?"✓ A seguir":t("follow")}
               </button>
@@ -2608,8 +2633,82 @@ function Learn({ C, t, isMobile, me }) {
 // MARKET (Marketplace + Jobs + Suppliers)
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Supplier Detail Component ─────────────────────────────────────────────────
-function SupplierDetail({ s, C, t, isMobile, onBack }) {
+// Contact / quote / order request for a catalogue supplier, stored in supplier_requests.
+function SupplierRequestModal({ C, t, me, supplier, kind, product, onClose }) {
+  const titles = { contact:"✉️ Contactar fornecedor", quote:"📄 Pedir orçamento", order:"🛒 Encomendar" };
+  const defaultMessage =
+    kind === "contact" ? `Olá! Gostava de obter mais informações sobre ${supplier.name}.`
+    : kind === "quote" ? `Pedido de orçamento a ${supplier.name}.`
+    : `Encomenda de ${product?.name} (${product?.ref}) a ${supplier.name}.`;
+  const needsQuantity = kind !== "contact";
+  const [message, setMessage] = useState(defaultMessage);
+  const [quantity, setQuantity] = useState("1");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+
+  const submit = async () => {
+    const text = message.trim();
+    const qty = needsQuantity ? parseInt(quantity, 10) : null;
+    if(!text){ setError("Escreva uma mensagem."); return; }
+    if(needsQuantity && (!qty || qty < 1)){ setError("Indique uma quantidade válida."); return; }
+    setSaving(true); setError("");
+    const { error: err } = await supabase.from("supplier_requests").insert({
+      requester_id: me.id,
+      supplier_id: String(supplier.id),
+      supplier_name: supplier.name,
+      kind,
+      product_ref: product?.ref || "",
+      product_name: product?.name || "",
+      quantity: qty,
+      message: text,
+    });
+    setSaving(false);
+    if(err){ setError(err.message); return; }
+    setSent(true);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>!saving&&onClose()}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:800,fontSize:15,color:C.text}}>{titles[kind]}</div>
+          <button onClick={onClose} disabled={saving} aria-label={t("close")} style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:20}}>✕</button>
+        </div>
+        {sent ? (
+          <div style={{padding:"22px 20px",display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{fontSize:14,color:C.text,fontWeight:700}}>✓ Pedido registado</div>
+            <div style={{fontSize:12,color:C.sub,lineHeight:1.6}}>O pedido para {supplier.name} ficou guardado na sua conta. Ainda não há envio automático ao fornecedor.</div>
+            <div style={{display:"flex",justifyContent:"flex-end"}}><button onClick={onClose} style={btn(C,"primary",true)}>Fechar</button></div>
+          </div>
+        ) : (
+          <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>
+            {product&&<div style={{fontSize:12,color:C.sub}}>Produto: <strong style={{color:C.text}}>{product.name}</strong> · {product.price} {product.unit}</div>}
+            {needsQuantity&&(
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>QUANTIDADE</label>
+                <input type="number" min="1" value={quantity} onChange={e=>setQuantity(e.target.value)} style={{...inp(C),fontSize:13}}/>
+              </div>
+            )}
+            <div>
+              <label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>MENSAGEM *</label>
+              <textarea rows={4} value={message} onChange={e=>setMessage(e.target.value)} style={{...inp(C),fontSize:13,resize:"vertical"}}/>
+            </div>
+            {error&&<div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.rose}}>⚠️ {error}</div>}
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
+              <button onClick={onClose} disabled={saving} style={btn(C,"outline",true)}>Cancelar</button>
+              <button onClick={submit} disabled={saving} style={{...btn(C,"primary",true),opacity:saving?0.7:1}}>{saving?"A enviar…":"Enviar pedido"}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SupplierDetail({ s, C, t, isMobile, onBack, me }) {
   const [supTab, setSupTab] = useState("products");
+  const [supModal, setSupModal] = useState(null); // {kind, product?}
   const [playingVideo, setPlayingVideo] = useState(null);
   const [videoProgress, setVideoProgress] = useState(0);
   const [supFb, triggerSupFb] = useFeedback();
@@ -2641,6 +2740,7 @@ function SupplierDetail({ s, C, t, isMobile, onBack }) {
 
   return (
     <div>
+      {supModal&&<SupplierRequestModal C={C} t={t} me={me} supplier={s} kind={supModal.kind} product={supModal.product} onClose={()=>setSupModal(null)}/>}
       {/* Back button */}
       <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",color:C.teal,fontWeight:600,marginBottom:16,fontSize:13}}>
         <Icon d={ic.back} size={16} color={C.teal}/> Voltar ao catálogo
@@ -2654,11 +2754,11 @@ function SupplierDetail({ s, C, t, isMobile, onBack }) {
         </div>
         <div style={{fontSize:13,color:C.sub,lineHeight:1.6,marginBottom:12}}>{s.desc}</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <button onClick={()=>triggerSupFb("contact")} style={{...btn(C,"primary",true),background:supFb==="contact"?C.emerald:s.color}}>
-            {supFb==="contact"?"✓ Mensagem enviada!":"✉️ "+t("contact")}
+          <button onClick={()=>setSupModal({kind:"contact"})} style={{...btn(C,"primary",true),background:s.color}}>
+            ✉️ {t("contact")}
           </button>
-          <button onClick={()=>triggerSupFb("quote")} style={{...btn(C,"outline",true),borderColor:supFb==="quote"?C.emerald:undefined,color:supFb==="quote"?C.emerald:undefined}}>
-            {supFb==="quote"?"✓ Pedido enviado!":"📄 Pedir orçamento"}
+          <button onClick={()=>setSupModal({kind:"quote"})} style={btn(C,"outline",true)}>
+            📄 Pedir orçamento
           </button>
         </div>
       </div>
@@ -2685,7 +2785,7 @@ function SupplierDetail({ s, C, t, isMobile, onBack }) {
               <div style={{fontSize:11,color:C.sub,lineHeight:1.5,marginBottom:10}}>{p.desc}</div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div><span style={{fontWeight:800,fontSize:16,color:s.color}}>{p.price}</span><span style={{fontSize:10,color:C.sub,marginLeft:4}}>{p.unit}</span></div>
-                <button onClick={()=>triggerSupFb("order_"+p.ref)} style={{...btn(C,"primary",true),background:supFb===("order_"+p.ref)?C.emerald:s.color,fontSize:11}}>{supFb===("order_"+p.ref)?"✓ Pedido!":t("order")}</button>
+                <button onClick={()=>setSupModal({kind:"order",product:p})} style={{...btn(C,"primary",true),background:s.color,fontSize:11}}>{t("order")}</button>
               </div>
             </div>
           ))}
@@ -2865,6 +2965,54 @@ function Market({ C, t, isMobile, me, setMainTab }) {
   const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
   const [supplierSaving, setSupplierSaving] = useState(false);
   const [supplierError, setSupplierError] = useState("");
+
+  // "Ver mais" on a marketplace listing
+  const [itemDetail, setItemDetail] = useState(null);
+
+  // "Publicar CV": one CV per user, stored under their own folder in post-media
+  const [myCv, setMyCv] = useState(undefined); // undefined = loading, null = none, {path,name}
+  const [cvOpen, setCvOpen] = useState(false);
+  const [cvBusy, setCvBusy] = useState(false);
+  const [cvError, setCvError] = useState("");
+  const cvInputRef = useRef(null);
+  const CV_EXT = {"application/pdf":"pdf","application/msword":"doc","application/vnd.openxmlformats-officedocument.wordprocessingml.document":"docx"};
+
+  useEffect(() => {
+    if(!me?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.from("profiles").select("cv_path, cv_name").eq("id", me.id).single();
+      if(cancelled) return;
+      if(error){ console.error(error); setMyCv(null); return; }
+      setMyCv(data?.cv_path ? { path: data.cv_path, name: data.cv_name || "CV" } : null);
+    })();
+    return () => { cancelled = true; };
+  }, [me?.id]);
+
+  const uploadCv = async (file) => {
+    if(!file) return;
+    if(!CV_EXT[file.type]){ setCvError("Use um ficheiro PDF, DOC ou DOCX."); return; }
+    if(file.size > 5 * 1024 * 1024){ setCvError("O ficheiro pode ter no máximo 5 MB."); return; }
+    setCvBusy(true); setCvError("");
+    const bucket = supabase.storage.from("post-media");
+    const path = `${me.id}/cv-${Date.now()}.${CV_EXT[file.type]}`;
+    const { error: upErr } = await bucket.upload(path, file, { contentType: file.type });
+    if(upErr){ setCvBusy(false); setCvError(upErr.message); return; }
+    const { error: dbErr } = await supabase.from("profiles").update({ cv_path: path, cv_name: file.name }).eq("id", me.id);
+    if(dbErr){ await bucket.remove([path]); setCvBusy(false); setCvError(dbErr.message); return; }
+    if(myCv?.path) await bucket.remove([myCv.path]);
+    setMyCv({ path, name: file.name });
+    setCvBusy(false);
+  };
+
+  const removeCv = async () => {
+    setCvBusy(true); setCvError("");
+    const { error } = await supabase.from("profiles").update({ cv_path: null, cv_name: null }).eq("id", me.id);
+    if(error){ setCvBusy(false); setCvError(error.message); return; }
+    if(myCv?.path) await supabase.storage.from("post-media").remove([myCv.path]);
+    setMyCv(null);
+    setCvBusy(false);
+  };
   const SUPPLIER_STATUS = { pending:"pendente", approved:"aprovado", rejected:"recusado" };
   const SUPPLIER_FIELDS = [
     { key:"company_name", label:"Nome da empresa *" },
@@ -3250,7 +3398,7 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
                   <div style={{fontWeight:800,fontSize:17,color:C.teal}}>{item.price}</div>
                   <div style={{display:"flex",gap:6}}>
                     {item.sellerId!==me.id&&<button onClick={()=>{setContactItem(item);setContactMsg(`Olá! Tenho interesse no anúncio "${item.title}" (${item.price}). Ainda está disponível?`);setContactSent(false);}} style={btn(C,"outline",true)}>💬 {t("contact")}</button>}
-                    <button onClick={()=>triggerMktFb("vermais_"+item.id)} style={btn(C,"primary",true)}>{mktFb===("vermais_"+item.id)?"↗️ A abrir…":"Ver mais"}</button>
+                    <button onClick={()=>setItemDetail(item)} style={btn(C,"primary",true)}>Ver mais</button>
                   </div>
                 </div>
               </div>
@@ -3324,7 +3472,7 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
             <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text}}>Emprego Veterinário</div>
             <div style={{display:"flex",gap:6}}>
-              {!isMobile&&<button onClick={()=>triggerMktFb("cv")} style={btn(C,"outline",true)}>{mktFb==="cv"?"✓ CV enviado!":"📋 "+t("publish_cv")}</button>}
+              <button onClick={()=>{ setCvError(""); setCvOpen(true); }} style={btn(C,"outline",true)}>{myCv?"📋 Gerir CV":"📋 "+t("publish_cv")}</button>
               <button onClick={generateReport} style={{...btn(C,"outline",true),borderColor:C.purple,color:C.purple}}>
                 📊 {isMobile?"Relatório":"Relatório Diário"}
               </button>
@@ -3489,7 +3637,7 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
       )}
 
       {sub==="suppliers"&&(
-        selSupplier?<SupplierDetail s={SUPPLIERS.find(x=>x.id===selSupplier)} C={C} t={t} isMobile={isMobile} onBack={()=>setSelSupplier(null)}/>:(
+        selSupplier?<SupplierDetail s={SUPPLIERS.find(x=>x.id===selSupplier)} C={C} t={t} isMobile={isMobile} onBack={()=>setSelSupplier(null)} me={me}/>:(
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text}}>Catálogos de Fornecedores</div>
@@ -3590,6 +3738,69 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
       )}
 
       {/* Item-scoped contact modal */}
+      {itemDetail&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setItemDetail(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                <span style={{fontSize:24}}>{itemDetail.img}</span>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:15,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{itemDetail.title}</div>
+                  <div style={{fontSize:11,color:C.sub}}>{itemDetail.cat} · {itemDetail.cond}</div>
+                </div>
+              </div>
+              <button onClick={()=>setItemDetail(null)} aria-label={t("close")} style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:20,flexShrink:0}}>✕</button>
+            </div>
+            <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{fontWeight:800,fontSize:20,color:C.teal}}>{itemDetail.price}</div>
+              <div style={{fontSize:12,color:C.sub}}>📍 {itemDetail.loc} · Vendedor: {itemDetail.seller}</div>
+              <div style={{fontSize:13,color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{itemDetail.desc||"Sem descrição."}</div>
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}>
+                <button onClick={()=>setItemDetail(null)} style={btn(C,"outline",true)}>Fechar</button>
+                {itemDetail.sellerId!==me.id&&(
+                  <button onClick={()=>{
+                    setContactItem(itemDetail);
+                    setContactMsg(`Olá! Tenho interesse no anúncio "${itemDetail.title}" (${itemDetail.price}). Ainda está disponível?`);
+                    setContactSent(false);
+                    setItemDetail(null);
+                  }} style={btn(C,"primary",true)}>💬 {t("contact")}</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cvOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>!cvBusy&&setCvOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:460,boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontWeight:800,fontSize:15,color:C.text}}>📋 Currículo</div>
+              <button onClick={()=>setCvOpen(false)} disabled={cvBusy} aria-label={t("close")} style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:20}}>✕</button>
+            </div>
+            <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{fontSize:12,color:C.sub,lineHeight:1.6}}>O currículo fica associado ao seu perfil e fica visível para os utilizadores autenticados da VetConnect.</div>
+              {myCv===undefined&&<div style={{fontSize:12,color:C.sub}}>A carregar…</div>}
+              {myCv&&(
+                <div style={{fontSize:12,color:C.text}}>
+                  Publicado: <a href={supabase.storage.from("post-media").getPublicUrl(myCv.path).data.publicUrl} target="_blank" rel="noreferrer" style={{color:C.teal,fontWeight:600}}>{myCv.name}</a>
+                </div>
+              )}
+              <input ref={cvInputRef} type="file" accept=".pdf,.doc,.docx" style={{display:"none"}}
+                onChange={e=>{ const file=e.target.files?.[0]; e.target.value=""; uploadCv(file); }}/>
+              {cvError&&<div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.rose}}>⚠️ {cvError}</div>}
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                {myCv&&<button onClick={removeCv} disabled={cvBusy} style={btn(C,"danger",true)}>Remover</button>}
+                <button onClick={()=>cvInputRef.current?.click()} disabled={cvBusy||myCv===undefined} style={{...btn(C,"primary",true),opacity:cvBusy?0.7:1}}>
+                  {cvBusy?"A enviar…":(myCv?"Substituir ficheiro":"Escolher ficheiro")}
+                </button>
+              </div>
+              <div style={{fontSize:11,color:C.sub}}>PDF, DOC ou DOCX, até 5 MB.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {contactItem&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setContactItem(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:460,boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
