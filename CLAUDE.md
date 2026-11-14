@@ -12,7 +12,7 @@ src/App.jsx                 — the entire UI (theme, i18n, every tab, Settings,
 src/lib/supabase.js         — Supabase client singleton (anon key)
 api/diagnosis.js            — POST /api/diagnosis (differential diagnosis, 4 providers)
 api/jobs-report.js          — POST /api/jobs-report (job-market report, 4 providers)
-supabase/migrations/0001…0014 — schema, RLS, triggers; run manually, in order, in the Supabase SQL editor
+supabase/migrations/0001…0016 — schema, RLS, triggers; run manually, in order, in the Supabase SQL editor
 vercel.json / vite.config.js / env.example
 ```
 
@@ -54,7 +54,9 @@ Two access patterns, and they must not be mixed:
 Patterns in the schema:
 
 - Most tables: `select` for any authenticated user, writes only by the owner (`auth.uid() = author_id` or the equivalent column).
-- Private tables, owner-only `select`: `diagnosis_history`, `notifications`, `saved_jobs`, `course_enrollments`, `account_deletion_requests`. `job_applications` is readable by the applicant and by the job's author.
+- Private tables, owner-only `select`: `diagnosis_history`, `notifications`, `saved_jobs`, `course_enrollments`, `account_deletion_requests`, `supplier_applications`, `supplier_requests`. `job_applications` is readable by the applicant and by the job's author.
+- `follows` is readable by any authenticated user (for follow state), and each user writes only rows where they are `follower_id`.
+- `profiles.cv_path` / `profiles.cv_name` are visible to any authenticated user through the normal `profiles` select, because that table is the public directory. Nothing in the UI lets users browse other people's CVs yet.
 - `is_conversation_participant()` is `SECURITY DEFINER`. It exists to avoid recursive RLS on `conversation_participants`.
 - DMs are created with the `get_or_create_dm(other_user_id)` RPC. Groups reuse the `conversations` table with `is_group = true`, and the creator inserts the participants afterwards.
 - Counters (`likes_count`, `comments_count`, `replies_count`) are maintained by triggers. Read them, don't recount.
@@ -62,7 +64,8 @@ Patterns in the schema:
 - Live-event status ("live" / "upcoming") is never stored. It is derived from `scheduled_at` and `duration_minutes` on the client.
 - `profiles.directory_visible` hides a user from people search and the specialists map. `profiles.settings` (jsonb) holds that user's preferences. Both are written by the owner through `profiles_update_own`.
 - `account_deletion_requests` accepts client inserts only. Actually deleting an auth user needs the service-role key on the server, which doesn't exist in this repo yet.
-- Storage: public bucket `post-media`. Uploads go under `${auth.uid()}/…`, and public read is deliberate because the UI uses plain `<img>`/`<video>` tags.
+- Storage: public bucket `post-media`. Uploads go under `${auth.uid()}/…`, and public read is deliberate because the UI uses plain `<img>`/`<video>` tags. Post media, chat attachments, profile photos (`avatar-*`) and CVs (`cv-*`) all live here. Replacing or removing a photo or CV deletes the previous file.
+- `supplier_id` in `supplier_requests` refers to the static `SUPPLIERS` list in the code, not to a table, so there is no foreign key.
 
 ## Known gaps
 
@@ -72,9 +75,12 @@ Don't assume these are safe, and check them before relying on the surrounding co
 - `conversation_participants_insert` (migration 0005) allows `user_id = auth.uid()` on any conversation. Any authenticated user who knows a conversation UUID can join it and read its history. `meeting_participants` has the same shape, but meetings are public by design.
 - `api/*.js` sends the Gemini key in the URL query string (`?key=`). Move it to the `x-goog-api-key` header.
 - Settings options that are stored but have no effect yet: email digests and live-event notifications (no sender or reminder job), identity verification (a submission is recorded, but there is no review or "verified" state), and account deletion (a request is recorded, but nothing processes it).
+- Supplier requests (contact, quote, order) and supplier applications are saved, but nothing forwards them to suppliers or reviews them. Approval and status changes happen directly in the database. Approving an application does not publish the supplier, because the catalogue is the static `SUPPLIERS` list.
+- Still mocked in the UI: uploading and downloading catalogues on a supplier page, "Transmitir" / "Agendar" in Learn, meeting "Detalhes", and the meeting room links ("Entrar", "Nova reunião").
+- Other users' profile photos are not shown yet. The queries behind posts, messages, the specialists map and the notification list do not select `avatar_url`. Only the signed-in user's own avatar uses the `Avatar` component with a photo.
 
 ## Gotchas
 
-- **Migrations are not applied automatically.** A new migration only takes effect after you run it in the Supabase SQL editor. Settings writes and certification writes fail until migrations 0013 and 0014 have run.
+- **Migrations are not applied automatically.** A new migration only takes effect after you run it in the Supabase SQL editor. Each of 0013–0016 backs a feature: 0013 certifications, 0014 settings columns and deletion requests, 0015 supplier applications, 0016 follows, supplier requests and CV columns. The matching UI writes fail until their migration has run.
 - `README.md` is the Portuguese deployment guide. It is the only place that documents the Vercel steps.
 - The previous Supabase/Vercel multi-file architecture (`src/components/`, `src/lib/db.js`, `api/_anthropic.js`) exists only in git history, before commit `16dbeae`. Use `git show ab3f2fd:<path>` to read it.
