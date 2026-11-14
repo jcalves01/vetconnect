@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, createContext, useRef } from "react";
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { supabase } from "./lib/supabase.js";
 
 // ── Build metadata ─────────────────────────────────────────────────────────────
@@ -605,6 +605,7 @@ function SearchHub({ query, onClose, C, t, setMainTab }) {
       const { data, error } = await supabase
         .from("profiles")
         .select("id, full_name, specialty, country")
+        .eq("directory_visible", true)
         .or(`full_name.ilike.%${q}%,specialty.ilike.%${q}%`)
         .limit(10);
       if(cancelled) return;
@@ -1418,7 +1419,7 @@ function Community({ C, t, isMobile, me }) {
     if(!newDmOpen) return;
     setNewDmLoading(true);
     const handle = setTimeout(async () => {
-      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).limit(20);
+      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).eq("directory_visible", true).limit(20);
       if(newDmSearch.trim()) query = query.ilike("full_name", `%${newDmSearch.trim()}%`);
       const { data, error } = await query;
       if(!error) setNewDmResults(data||[]);
@@ -1445,7 +1446,7 @@ function Community({ C, t, isMobile, me }) {
     if(!newGroupOpen) return;
     setNewGroupSearchLoading(true);
     const handle = setTimeout(async () => {
-      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).limit(20);
+      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).eq("directory_visible", true).limit(20);
       if(newGroupSearch.trim()) query = query.ilike("full_name", `%${newGroupSearch.trim()}%`);
       const { data, error } = await query;
       if(!error) setNewGroupResults(data||[]);
@@ -1458,7 +1459,7 @@ function Community({ C, t, isMobile, me }) {
     if(!newMeetingOpen) return;
     setNewMeetingSearchLoading(true);
     const handle = setTimeout(async () => {
-      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).limit(20);
+      let query = supabase.from("profiles").select("id, full_name, specialty").neq("id", me.id).eq("directory_visible", true).limit(20);
       if(newMeetingSearch.trim()) query = query.ilike("full_name", `%${newMeetingSearch.trim()}%`);
       const { data, error } = await query;
       if(!error) setNewMeetingResults(data||[]);
@@ -4234,6 +4235,7 @@ function ExpertMap({ C, t, isMobile, me, setMainTab }) {
         .from("profiles")
         .select("id, full_name, specialty, country")
         .neq("id", me.id)
+        .eq("directory_visible", true)
         .order("full_name")
         .limit(100);
       if(!error) setExperts(data||[]);
@@ -4306,13 +4308,18 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
   const [profileName, setProfileName] = useState(u.name);
   const [profileSpec, setProfileSpec] = useState(u.spec);
   const [profileBio, setProfileBio] = useState(u.bio);
+  const [profileCountry, setProfileCountry] = useState(u.country);
+  const [profileLicense, setProfileLicense] = useState(u.license);
+  const interestsKey = (u.interests || []).join(", ");
+  const [profileInterests, setProfileInterests] = useState(interestsKey);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [profFb, triggerProfFb] = useFeedback();
 
   useEffect(() => {
     setProfileName(u.name); setProfileSpec(u.spec); setProfileBio(u.bio);
-  }, [u.name, u.spec, u.bio]);
+    setProfileCountry(u.country); setProfileLicense(u.license); setProfileInterests(interestsKey);
+  }, [u.name, u.spec, u.bio, u.country, u.license, interestsKey]);
 
   const saveProfile = async () => {
     setSaving(true); setSaveError("");
@@ -4320,6 +4327,9 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
       full_name: profileName.trim(),
       specialty: profileSpec,
       bio: profileBio,
+      country: profileCountry.trim() || null,
+      license: profileLicense.trim() || null,
+      interests: profileInterests.split(",").map(s => s.trim()).filter(Boolean),
     }).eq("id", u.id);
     setSaving(false);
     if(err){ setSaveError(err.message); return; }
@@ -4359,6 +4369,75 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
     })();
   }, [u.id]);
 
+  const [certs, setCerts] = useState([]);
+  const [certsLoading, setCertsLoading] = useState(true);
+  const [certTitle, setCertTitle] = useState("");
+  const [certIssuer, setCertIssuer] = useState("");
+  const [certYear, setCertYear] = useState("");
+  const [certSaving, setCertSaving] = useState(false);
+  const [certError, setCertError] = useState("");
+
+  const [statsPosts, setStatsPosts] = useState([]);
+  const [statsCases, setStatsCases] = useState([]);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  useEffect(() => {
+    if(!u.id) return;
+    (async () => {
+      setCertsLoading(true);
+      const { data, error } = await supabase
+        .from("certifications")
+        .select("id, title, issuer, year")
+        .eq("owner_id", u.id)
+        .order("created_at", { ascending: false });
+      if(error){ console.error(error); setCertError(error.message); }
+      setCerts(data||[]);
+      setCertsLoading(false);
+    })();
+  }, [u.id]);
+
+  useEffect(() => {
+    if(!u.id || sub !== "stats") return;
+    (async () => {
+      setStatsLoading(true);
+      const [postsRes, casesRes] = await Promise.all([
+        supabase.from("posts").select("id, likes_count, comments_count, created_at").eq("author_id", u.id),
+        supabase.from("soap_cases").select("id, status, replies_count, created_at").eq("author_id", u.id),
+      ]);
+      if(postsRes.error) console.error(postsRes.error);
+      if(casesRes.error) console.error(casesRes.error);
+      setStatsPosts(postsRes.data||[]);
+      setStatsCases(casesRes.data||[]);
+      setStatsLoading(false);
+    })();
+  }, [u.id, sub]);
+
+  const addCert = async () => {
+    const title = certTitle.trim();
+    if(!title) return;
+    const year = certYear ? parseInt(certYear, 10) : null;
+    if(certYear && (Number.isNaN(year) || year < 1950 || year > new Date().getFullYear() + 1)){
+      setCertError("Ano inválido.");
+      return;
+    }
+    setCertSaving(true); setCertError("");
+    const { data, error } = await supabase
+      .from("certifications")
+      .insert({ owner_id: u.id, title, issuer: certIssuer.trim(), year })
+      .select("id, title, issuer, year")
+      .single();
+    setCertSaving(false);
+    if(error){ setCertError(error.message); return; }
+    setCerts(prev => [data, ...prev]);
+    setCertTitle(""); setCertIssuer(""); setCertYear("");
+  };
+
+  const deleteCert = async (id) => {
+    const { error } = await supabase.from("certifications").delete().eq("id", id);
+    if(error){ setCertError(error.message); return; }
+    setCerts(prev => prev.filter(c => c.id !== id));
+  };
+
   const SUBS=[{id:"posts",label:"📝 "+t("profile_posts")},{id:"cases",label:"🔬 "+t("profile_cases")},{id:"certs",label:"🎓 "+t("profile_certs")},{id:"stats",label:"📊 "+t("profile_stats")}];
   if(!profileLoaded) return <SkeletonFeed C={C}/>;
   return (
@@ -4379,6 +4458,12 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
                 </select></div>
               <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>{t("bio").toUpperCase()}</label>
                 <textarea value={profileBio} onChange={e=>setProfileBio(e.target.value)} rows={3} style={{...inp(C),fontSize:13,resize:"vertical"}}/></div>
+              <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>PAÍS</label>
+                <input value={profileCountry} onChange={e=>setProfileCountry(e.target.value)} style={{...inp(C),fontSize:13}}/></div>
+              <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>CÉDULA PROFISSIONAL</label>
+                <input value={profileLicense} onChange={e=>setProfileLicense(e.target.value)} placeholder="ex.: OMV 1234" style={{...inp(C),fontSize:13}}/></div>
+              <div><label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>INTERESSES (separados por vírgulas)</label>
+                <input value={profileInterests} onChange={e=>setProfileInterests(e.target.value)} placeholder="ex.: Oncologia, Exóticos" style={{...inp(C),fontSize:13}}/></div>
               {saveError&&<div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.rose}}>⚠️ {saveError}</div>}
               <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
                 <button onClick={()=>setEditOpen(false)} style={btn(C,"outline",true)}>Cancelar</button>
@@ -4429,93 +4514,107 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
           <div style={{fontSize:12,color:C.sub}}>{(c.subjective||"").slice(0,100)}…</div>
         </div>
       ))}
-      {sub==="certs"&&[{t:"Especialista em Medicina Interna",o:"ECVIM-CA",y:"2019",i:"🎓"},{t:"Doutoramento em Ciências Veterinárias",o:"Univ. Lisboa",y:"2016",i:"📜"},{t:"Mestrado em Animais de Companhia",o:"Univ. Évora",y:"2011",i:"📋"}].map((e,i)=>(
-        <div key={i} style={card(C)}>
-          <div style={{display:"flex",gap:12,alignItems:"center"}}><span style={{fontSize:24}}>{e.i}</span><div><div style={{fontWeight:700,fontSize:13,color:C.text}}>{e.t}</div><div style={{fontSize:11,color:C.sub}}>{e.o} · {e.y}</div></div></div>
+      {sub==="certs"&&(
+        <div>
+          <div style={card(C)}>
+            <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:12}}>🎓 Adicionar certificação</div>
+            <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:8}}>
+              <input placeholder="Título (ex.: Especialista em Medicina Interna)" value={certTitle} onChange={e=>setCertTitle(e.target.value)} style={{...inp(C),fontSize:13,flex:2}}/>
+              <input placeholder="Entidade emissora" value={certIssuer} onChange={e=>setCertIssuer(e.target.value)} style={{...inp(C),fontSize:13,flex:1}}/>
+              <input placeholder="Ano" type="number" value={certYear} onChange={e=>setCertYear(e.target.value)} style={{...inp(C),fontSize:13,flex:"0 0 90px"}}/>
+              <button onClick={addCert} disabled={certSaving||!certTitle.trim()} style={{...btn(C,"primary",true),opacity:(certSaving||!certTitle.trim())?0.6:1}}>{certSaving?"A adicionar…":"Adicionar"}</button>
+            </div>
+            {certError&&<div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.rose,marginTop:10}}>⚠️ {certError}</div>}
+          </div>
+          {certsLoading&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar…</div>}
+          {!certsLoading&&certs.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>Ainda sem certificações.</div>}
+          {certs.map(c=>(
+            <div key={c.id} style={card(C)}>
+              <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                <span style={{fontSize:24}}>🎓</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>{c.title}</div>
+                  <div style={{fontSize:11,color:C.sub}}>{c.issuer}{c.issuer&&c.year?" · ":""}{c.year||""}</div>
+                </div>
+                <button onClick={()=>deleteCert(c.id)} aria-label="Remover certificação" style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:16}}>🗑️</button>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
       {sub==="stats"&&(()=>{
-        const followerData = [
-          {month:"Jan",seguidores:680,engagement:4.1},
-          {month:"Fev",seguidores:720,engagement:4.6},
-          {month:"Mar",seguidores:758,engagement:5.0},
-          {month:"Abr",seguidores:801,engagement:5.3},
-          {month:"Mai",seguidores:849,engagement:5.9},
-          {month:"Jun",seguidores:892,engagement:6.4},
-        ];
-        const engagementByType = [
-          {tipo:"Casos clínicos",valor:142},
-          {tipo:"Publicações",valor:88},
-          {tipo:"Eventos",valor:34},
-          {tipo:"Comentários",valor:97},
-        ];
+        if(statsLoading) return <div style={{textAlign:"center",color:C.sub,padding:"20px 0",fontSize:13}}>A carregar…</div>;
         const tooltipStyle = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,color:C.text};
+        const monthIndex = (iso) => { const d = new Date(iso); return d.getFullYear()*12 + d.getMonth(); };
+        const now = new Date();
+        const months = Array.from({length:6}, (_,i) => {
+          const idx = now.getFullYear()*12 + now.getMonth() - (5 - i);
+          return { idx, label: new Date(Math.floor(idx/12), idx%12, 1).toLocaleDateString("pt-PT",{month:"short"}) };
+        });
+        const activity = months.map(m => ({
+          month: m.label,
+          publicações: statsPosts.filter(p => monthIndex(p.created_at) === m.idx).length,
+          casos: statsCases.filter(c => monthIndex(c.created_at) === m.idx).length,
+        }));
+        const likes = statsPosts.reduce((a,p) => a + (p.likes_count||0), 0);
+        const postComments = statsPosts.reduce((a,p) => a + (p.comments_count||0), 0);
+        const caseReplies = statsCases.reduce((a,c) => a + (c.replies_count||0), 0);
+        const resolved = statsCases.filter(c => c.status === "Resolvido").length;
+        const kpis = [
+          {label:"Publicações", value:statsPosts.length},
+          {label:"Casos SOAP", value:statsCases.length},
+          {label:"Casos resolvidos", value:resolved},
+          {label:"Gostos recebidos", value:likes},
+          {label:"Comentários recebidos", value:postComments},
+          {label:"Respostas nos seus casos", value:caseReplies},
+        ];
+        const interactions = [
+          {tipo:"Gostos", valor:likes},
+          {tipo:"Comentários", valor:postComments},
+          {tipo:"Respostas", valor:caseReplies},
+        ];
         return (
           <div>
-            {/* Top KPI row */}
             <div style={card(C)}>
               <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:16}}>📊 Estatísticas do Perfil</div>
-              {[{label:"Visualizações do perfil (30 dias)",value:"1.247",trend:"+12%",up:true},{label:"Impressões das publicações",value:"8.932",trend:"+28%",up:true},{label:"Seguidores ganhos este mês",value:"+43",trend:"+8%",up:true},{label:"Taxa de engagement",value:"6.4%",trend:"+1.2%",up:true},{label:"Casos clínicos comentados",value:"12",trend:"+4",up:true}].map((s,i,arr)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
+              {kpis.map((s,i,arr)=>(
+                <div key={s.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none"}}>
                   <div style={{fontSize:13,color:C.sub}}>{s.label}</div>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <span style={{fontWeight:800,fontSize:14,color:C.text}}>{s.value}</span>
-                    <span style={{fontSize:11,color:s.up?C.emerald:C.rose,fontWeight:600}}>{s.trend}</span>
-                  </div>
+                  <span style={{fontWeight:800,fontSize:14,color:C.text}}>{s.value}</span>
                 </div>
               ))}
             </div>
 
-            {/* Followers growth chart */}
             <div style={card(C)}>
-              <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>📈 Crescimento de Seguidores</div>
-              <div style={{fontSize:11,color:C.sub,marginBottom:14}}>Últimos 6 meses</div>
+              <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>📈 Atividade mensal</div>
+              <div style={{fontSize:11,color:C.sub,marginBottom:10}}>Últimos 6 meses · itens criados</div>
+              <div style={{display:"flex",gap:14,fontSize:11,color:C.sub,marginBottom:10}}>
+                <span><span style={{display:"inline-block",width:8,height:8,borderRadius:2,background:C.teal,marginRight:5}}/>Publicações</span>
+                <span><span style={{display:"inline-block",width:8,height:8,borderRadius:2,background:C.purple,marginRight:5}}/>Casos SOAP</span>
+              </div>
               <div style={{width:"100%",height:200}}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={followerData} margin={{top:4,right:8,left:-20,bottom:0}}>
-                    <defs>
-                      <linearGradient id="followerGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={C.teal} stopOpacity={0.35}/>
-                        <stop offset="100%" stopColor={C.teal} stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
+                  <BarChart data={activity} margin={{top:4,right:8,left:-20,bottom:0}}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                     <XAxis dataKey="month" tick={{fontSize:11,fill:C.sub}} axisLine={{stroke:C.border}} tickLine={false}/>
-                    <YAxis tick={{fontSize:11,fill:C.sub}} axisLine={false} tickLine={false}/>
+                    <YAxis allowDecimals={false} tick={{fontSize:11,fill:C.sub}} axisLine={false} tickLine={false}/>
                     <Tooltip contentStyle={tooltipStyle}/>
-                    <Area type="monotone" dataKey="seguidores" stroke={C.teal} strokeWidth={2.5} fill="url(#followerGrad)"/>
-                  </AreaChart>
+                    <Bar dataKey="publicações" fill={C.teal} radius={[4,4,0,0]}/>
+                    <Bar dataKey="casos" fill={C.purple} radius={[4,4,0,0]}/>
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            {/* Engagement rate trend */}
-            <div style={card(C)}>
-              <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>💬 Taxa de Engagement</div>
-              <div style={{fontSize:11,color:C.sub,marginBottom:14}}>Percentagem mensal (%)</div>
-              <div style={{width:"100%",height:180}}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={followerData} margin={{top:4,right:8,left:-20,bottom:0}}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                    <XAxis dataKey="month" tick={{fontSize:11,fill:C.sub}} axisLine={{stroke:C.border}} tickLine={false}/>
-                    <YAxis tick={{fontSize:11,fill:C.sub}} axisLine={false} tickLine={false}/>
-                    <Tooltip contentStyle={tooltipStyle}/>
-                    <Line type="monotone" dataKey="engagement" stroke={C.purple} strokeWidth={2.5} dot={{r:4,fill:C.purple}}/>
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Content breakdown bar chart */}
             <div style={card(C,{marginBottom:0})}>
-              <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>🗂️ Interacções por Tipo de Conteúdo</div>
+              <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:4}}>🗂️ Interações recebidas</div>
               <div style={{fontSize:11,color:C.sub,marginBottom:14}}>Total acumulado</div>
               <div style={{width:"100%",height:180}}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={engagementByType} margin={{top:4,right:8,left:-20,bottom:0}}>
+                  <BarChart data={interactions} margin={{top:4,right:8,left:-20,bottom:0}}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                    <XAxis dataKey="tipo" tick={{fontSize:10,fill:C.sub}} axisLine={{stroke:C.border}} tickLine={false}/>
-                    <YAxis tick={{fontSize:11,fill:C.sub}} axisLine={false} tickLine={false}/>
+                    <XAxis dataKey="tipo" tick={{fontSize:11,fill:C.sub}} axisLine={{stroke:C.border}} tickLine={false}/>
+                    <YAxis allowDecimals={false} tick={{fontSize:11,fill:C.sub}} axisLine={false} tickLine={false}/>
                     <Tooltip contentStyle={tooltipStyle}/>
                     <Bar dataKey="valor" fill={C.emerald} radius={[6,6,0,0]}/>
                   </BarChart>
@@ -4532,6 +4631,218 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Definições ────────────────────────────────────────────────────────────────
+function SettingRow({ C, icon, label, sub, onClick, toggle, value, last }) {
+  const clickable = !!onClick;
+  return (
+    <div onClick={onClick} role={clickable?"button":undefined} tabIndex={clickable?0:undefined}
+      onKeyDown={e=>{ if(clickable&&(e.key==="Enter"||e.key===" ")){ e.preventDefault(); onClick(); } }}
+      aria-label={label}
+      style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",cursor:clickable?"pointer":"default",borderBottom:last?"none":`1px solid ${C.border}`}}>
+      <span style={{fontSize:20,flexShrink:0}}>{icon}</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:600,fontSize:14,color:C.text}}>{label}</div>
+        {sub&&<div style={{fontSize:12,color:C.sub}}>{sub}</div>}
+      </div>
+      {toggle?(
+        <div role="switch" aria-checked={!!value} style={{width:42,height:24,borderRadius:12,background:value?C.teal:C.border,position:"relative",transition:"background .2s",flexShrink:0}}>
+          <div style={{position:"absolute",top:3,left:value?20:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}/>
+        </div>
+      ):(clickable&&<div style={{transform:"rotate(180deg)",display:"flex",flexShrink:0}}><Icon d={ic.back} size={16} color={C.sub}/></div>)}
+    </div>
+  );
+}
+
+function SettingsModal({ C, title, onClose, children }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:460,boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:800,fontSize:15,color:C.text}}>{title}</div>
+          <button onClick={onClose} aria-label="Fechar" style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:20}}>✕</button>
+        </div>
+        <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsScreen({ C, t, isMobile, me, email, settings, directoryVisible, dark, setDark, currentLang, setLangOpen, setMainTab, onSignOut, onSettingsSaved }) {
+  const [modal, setModal] = useState(null); // "license" | "delete" | null
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);     // {type:"ok"|"err", text}
+  const [licenseInput, setLicenseInput] = useState(me.license || "");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+
+  const prefs = settings || {};
+  const pushOn = prefs.notif_push !== false; // on by default, matching the previous behaviour
+  const licensePending = prefs.license_verification === "pending";
+
+  const updateProfile = async (fields) => {
+    const { error } = await supabase.from("profiles").update(fields).eq("id", me.id);
+    if (error) { setMsg({ type:"err", text:error.message }); return false; }
+    onSettingsSaved?.();
+    return true;
+  };
+  const setPref = (key, value) => updateProfile({ settings: { ...prefs, [key]: value } });
+
+  const togglePush = async () => {
+    if (!pushOn) {
+      if (typeof Notification === "undefined") { setMsg({ type:"err", text:"Este navegador não suporta notificações." }); return; }
+      if (Notification.permission === "denied") { setMsg({ type:"err", text:"As notificações estão bloqueadas no navegador. Desbloqueie-as nas definições do site." }); return; }
+      if (Notification.permission === "default") {
+        const result = await Notification.requestPermission();
+        if (result !== "granted") { setMsg({ type:"err", text:"Permissão de notificações não concedida." }); return; }
+      }
+    }
+    await setPref("notif_push", !pushOn);
+  };
+
+  const sendPasswordReset = async () => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: AUTH_REDIRECT() });
+    setMsg(error ? { type:"err", text:error.message } : { type:"ok", text:"Enviámos um email com o link para definir uma nova password." });
+  };
+
+  const signOutEverywhere = async () => {
+    if (!window.confirm("Terminar sessão em todos os dispositivos?")) return;
+    const { error } = await supabase.auth.signOut({ scope: "global" });
+    if (error) setMsg({ type:"err", text:error.message });
+  };
+
+  const submitLicense = async () => {
+    const license = licenseInput.trim();
+    if (!license) return;
+    setBusy(true);
+    const ok = await updateProfile({
+      license,
+      settings: { ...prefs, license_verification: "pending", license_submitted_at: new Date().toISOString() },
+    });
+    setBusy(false);
+    if (ok) { setModal(null); setMsg({ type:"ok", text:"Cédula submetida para verificação." }); }
+  };
+
+  const requestDeletion = async () => {
+    if (deleteConfirm !== "ELIMINAR") return;
+    setBusy(true);
+    const { error } = await supabase.from("account_deletion_requests").insert({ user_id: me.id });
+    setBusy(false);
+    if (error) { setMsg({ type:"err", text:error.message }); return; }
+    setModal(null); setDeleteConfirm("");
+    setMsg({ type:"ok", text:"Pedido de eliminação registado. A equipa VetConnect vai tratar dos seus dados." });
+  };
+
+  const exportData = async () => {
+    setBusy(true); setMsg(null);
+    const own = (table, column) => supabase.from(table).select("*").eq(column, me.id);
+    const sources = [
+      ["perfil", supabase.from("profiles").select("*").eq("id", me.id).single()],
+      ["publicacoes", own("posts", "author_id")],
+      ["comentarios_publicacoes", own("post_comments", "author_id")],
+      ["casos_soap", own("soap_cases", "author_id")],
+      ["comentarios_casos", own("soap_case_comments", "author_id")],
+      ["vagas", own("jobs", "author_id")],
+      ["candidaturas", own("job_applications", "applicant_id")],
+      ["anuncios_mercado", own("market_items", "seller_id")],
+      ["historico_diagnosticos", own("diagnosis_history", "author_id")],
+      ["certificacoes", own("certifications", "owner_id")],
+      ["inscricoes_formacao", own("course_enrollments", "user_id")],
+      ["inscricoes_eventos", own("live_event_registrations", "user_id")],
+      ["mensagens_enviadas", own("messages", "author_id")],
+    ];
+    const results = await Promise.all(sources.map(([, q]) => q));
+    const failed = results.find(r => r.error);
+    if (failed) { setBusy(false); setMsg({ type:"err", text:failed.error.message }); return; }
+    const payload = {
+      exportado_em: new Date().toISOString(),
+      email,
+      ...Object.fromEntries(sources.map(([name], i) => [name, results[i].data])),
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type:"application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vetconnect-dados-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setBusy(false);
+  };
+
+  const sections = [
+    {title:"Conta", rows:[
+      {icon:"👤", label:t("edit_profile"), sub:"Nome, especialidade, país, cédula, interesses e bio", onClick:()=>setMainTab("profile")},
+      {icon:"🔒", label:"Verificação de Identidade", sub:(licensePending?"Pendente de verificação":"Cédula não submetida")+(me.license?` · ${me.license}`:""), onClick:()=>{ setLicenseInput(me.license||""); setModal("license"); }},
+      {icon:"🔑", label:"Alterar Password", sub:"Enviamos um link de redefinição para o seu email", onClick:sendPasswordReset},
+    ]},
+    {title:"Aparência", rows:[
+      {icon:dark?"🌙":"☀️", label:"Modo Escuro", sub:dark?"Activo":"Inactivo", toggle:true, value:dark, onClick:()=>setDark(d=>!d)},
+      {icon:currentLang.flag, label:"Idioma", sub:currentLang.label, onClick:()=>setLangOpen(true)},
+    ]},
+    {title:"Notificações", rows:[
+      {icon:"🔔", label:"Notificações Push", sub:"Aviso no navegador ao receber likes, comentários ou mensagens", toggle:true, value:pushOn, onClick:togglePush},
+      {icon:"📧", label:"Emails", sub:"Resumo semanal — preferência guardada; envio ainda não ligado", toggle:true, value:!!prefs.notif_email, onClick:()=>setPref("notif_email", !prefs.notif_email)},
+      {icon:"📡", label:"Lives e Eventos", sub:"Avisos de transmissões — preferência guardada; lembretes ainda não ligados", toggle:true, value:!!prefs.notif_live, onClick:()=>setPref("notif_live", !prefs.notif_live)},
+    ]},
+    {title:"Privacidade", rows:[
+      {icon:"👁", label:"Visível na pesquisa de colegas", sub:directoryVisible?"Aparece em pesquisas e no mapa de especialistas":"Oculto em pesquisas e no mapa de especialistas", toggle:true, value:directoryVisible, onClick:()=>updateProfile({ directory_visible:!directoryVisible })},
+      {icon:"📦", label:"Exportar os meus dados", sub:busy?"A preparar o ficheiro…":"Descarregar um ficheiro JSON com os seus dados (RGPD)", onClick:exportData},
+      {icon:"🗑️", label:"Eliminar conta", sub:"Pedir a eliminação dos seus dados (RGPD)", onClick:()=>{ setDeleteConfirm(""); setModal("delete"); }},
+      {icon:"📱", label:"Terminar sessão em todos os dispositivos", sub:"Desliga esta conta em todos os navegadores", onClick:signOutEverywhere},
+    ]},
+    {title:"Sessão", rows:[
+      {icon:"🚪", label:"Terminar Sessão", sub:email||"", onClick:onSignOut},
+    ]},
+  ];
+
+  return (
+    <div style={{maxWidth:isMobile?"100%":600,margin:"0 auto"}}>
+      <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text,marginBottom:18}}>⚙️ {t("settings")}</div>
+      {msg&&(
+        <div role="status" style={{background:msg.type==="err"?C.rose+"15":C.emerald+"15",border:`1px solid ${msg.type==="err"?C.rose:C.emerald}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:msg.type==="err"?C.rose:C.emerald,marginBottom:14}}>
+          {msg.type==="err"?"⚠️ ":"✓ "}{msg.text}
+        </div>
+      )}
+      {sections.map(sec=>(
+        <div key={sec.title} style={{marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.sub,letterSpacing:1,textTransform:"uppercase",marginBottom:8,paddingLeft:4}}>{sec.title}</div>
+          <div style={card(C,{padding:0,overflow:"hidden"})}>
+            {sec.rows.map((r,i)=><SettingRow key={r.label} C={C} {...r} last={i===sec.rows.length-1}/>)}
+          </div>
+        </div>
+      ))}
+      <div style={{textAlign:"center",padding:"10px 0 4px"}}>
+        <div style={{fontSize:12,color:C.sub,marginBottom:4}}>{APP_NAME} · v{APP_VERSION} · Build {APP_BUILD}</div>
+        <div style={{fontSize:11,color:C.sub,marginBottom:12}}>Desenvolvido com ❤️ para a comunidade veterinária global</div>
+        <button onClick={()=>window.open("mailto:beta@vetconnect.pt?subject=Feedback+Beta+"+APP_VERSION,"_blank")}
+          style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 16px",fontSize:12,cursor:"pointer",color:C.teal,fontWeight:600}}>
+          📧 Enviar Feedback Beta
+        </button>
+      </div>
+
+      {modal==="license"&&(
+        <SettingsModal C={C} title="🔒 Verificação de Identidade" onClose={()=>setModal(null)}>
+          <div style={{fontSize:13,color:C.sub,lineHeight:1.6}}>Introduza o número da sua cédula profissional (OMV/CRMV). Fica pendente até ser verificada.</div>
+          {licensePending&&<div style={{fontSize:12,color:C.amber,fontWeight:600}}>Já submetida — pendente de verificação.</div>}
+          <input value={licenseInput} onChange={e=>setLicenseInput(e.target.value)} placeholder="ex.: OMV 1234" style={{...inp(C),fontSize:13}}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <button onClick={()=>setModal(null)} style={btn(C,"outline",true)}>Cancelar</button>
+            <button onClick={submitLicense} disabled={busy||!licenseInput.trim()} style={{...btn(C,"primary",true),opacity:(busy||!licenseInput.trim())?0.6:1}}>{busy?"A submeter…":"Submeter"}</button>
+          </div>
+        </SettingsModal>
+      )}
+
+      {modal==="delete"&&(
+        <SettingsModal C={C} title="🗑️ Eliminar conta" onClose={()=>setModal(null)}>
+          <div style={{fontSize:13,color:C.sub,lineHeight:1.6}}>Esta ação regista um pedido de eliminação permanente da sua conta e dos seus dados. Para confirmar, escreva <strong style={{color:C.text}}>ELIMINAR</strong>.</div>
+          <input value={deleteConfirm} onChange={e=>setDeleteConfirm(e.target.value)} placeholder="ELIMINAR" style={{...inp(C),fontSize:13}}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <button onClick={()=>setModal(null)} style={btn(C,"outline",true)}>Cancelar</button>
+            <button onClick={requestDeletion} disabled={busy||deleteConfirm!=="ELIMINAR"} style={{...btn(C,"danger",true),opacity:(busy||deleteConfirm!=="ELIMINAR")?0.6:1}}>{busy?"A registar…":"Pedir eliminação"}</button>
+          </div>
+        </SettingsModal>
+      )}
+    </div>
+  );
+}
+
 const initialsOf = (name) => (name||"").trim().split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("").toUpperCase() || "?";
 
 const timeAgo = (iso) => {
@@ -4647,6 +4958,11 @@ export default function VetConnect() {
     return () => { cancelled = true; };
   }, [me.id]);
 
+  // Read by the realtime handler below, which is subscribed once per user and so
+  // would otherwise see a stale copy of the preferences.
+  const notifPrefsRef = useRef({});
+  notifPrefsRef.current = profile?.settings || {};
+
   useEffect(() => {
     if(!me.id) return;
     const channel = supabase.channel(`notifications:${me.id}`)
@@ -4659,7 +4975,7 @@ export default function VetConnect() {
         const mapped = mapNotifRow({ ...payload.new, actor: { full_name: actorName } });
         setGlobalNotifs(prev => [mapped, ...prev]);
         setToast(mapped);
-        if(typeof Notification !== "undefined" && Notification.permission === "granted") {
+        if(notifPrefsRef.current.notif_push !== false && typeof Notification !== "undefined" && Notification.permission === "granted") {
           new Notification(mapped.user, { body: mapped.action + (mapped.target ? ` — ${mapped.target}` : ""), icon: "🐾" });
         }
       })
@@ -4701,57 +5017,7 @@ export default function VetConnect() {
     {id:"settings",label:t("settings"),icon:ic.cog},
   ];
 
-  const Settings = ({ C, t, isMobile }) => (
-    <div style={{maxWidth:isMobile?"100%":600,margin:"0 auto"}}>
-      <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text,marginBottom:18}}>⚙️ {t("settings")}</div>
-      {[
-        {section:"Conta", items:[{label:t("edit_profile"),icon:"👤",sub:"Nome, especialidade, foto",action:()=>changeTab("profile")},{label:"Verificação de Identidade",icon:"🔒",sub:"OMV / CRMV número de cédula"},{label:"Alterar Password",icon:"🔑",sub:"Segurança da conta",action:()=>supabase.auth.resetPasswordForEmail(session.user.email, { redirectTo: AUTH_REDIRECT() }).then(({error})=>alert(error?error.message:"Enviámos um email com o link para definir uma nova password."))}]},
-        {section:"Aparência", items:[{label:"Modo Escuro",icon:dark?"🌙":"☀️",sub:dark?"Activo":"Inactivo",action:()=>setDark(d=>!d),toggle:true,value:dark},{label:"Idioma",icon:currentLang.flag,sub:currentLang.label,action:()=>setLangOpen(true)}]},
-        {section:"Notificações", items:[{label:"Notificações Push",icon:"🔔",sub:"Novas mensagens, likes e comentários"},{label:"Emails",icon:"📧",sub:"Resumo semanal e alertas"},{label:"Lives e Eventos",icon:"📡",sub:"Avisos de transmissões ao vivo"}]},
-        {section:"Privacidade", items:[{label:"Visibilidade do Perfil",icon:"👁",sub:"Público · Apenas colegas"},{label:"Dados Pessoais",icon:"🛡️",sub:"RGPD — exportar ou eliminar dados"},{label:"Sessões Activas",icon:"📱",sub:"Gerir dispositivos ligados"}]},
-        {section:"Sessão", items:[{label:"Terminar Sessão",icon:"🚪",sub:session?.user?.email||"",action:signOut}]},
-      ].map(({section,items})=>(
-        <div key={section} style={{marginBottom:20}}>
-          <div style={{fontSize:11,fontWeight:700,color:C.sub,letterSpacing:1,textTransform:"uppercase",marginBottom:8,paddingLeft:4}}>{section}</div>
-          <div style={{...card(C,{padding:0,overflow:"hidden"})}}>
-            {items.map((item,i)=>(
-              <div key={item.label} onClick={item.action}
-                role={item.action?"button":undefined}
-                tabIndex={item.action?0:undefined}
-                onKeyDown={e=>{if(item.action&&(e.key==="Enter"||e.key===" "))item.action();}}
-                aria-label={item.label}
-                style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px",cursor:item.action?"pointer":"default",borderBottom:i<items.length-1?`1px solid ${C.border}`:"none",transition:"background .15s"}}
-                onMouseEnter={e=>{if(item.action)e.currentTarget.style.background=C.bg;}}
-                onMouseLeave={e=>{e.currentTarget.style.background=C.surface;}}>
-                <span style={{fontSize:20,flexShrink:0}}>{item.icon}</span>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:600,fontSize:14,color:C.text}}>{item.label}</div>
-                  <div style={{fontSize:12,color:C.sub}}>{item.sub}</div>
-                </div>
-                {item.toggle?(
-                  <div onClick={item.action} style={{width:42,height:24,borderRadius:12,background:item.value?C.teal:C.border,cursor:"pointer",position:"relative",transition:"background .2s",flexShrink:0}}>
-                    <div style={{position:"absolute",top:3,left:item.value?20:3,width:18,height:18,borderRadius:"50%",background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,0.2)"}}/>
-                  </div>
-                ):(
-                  <div style={{transform:"rotate(180deg)",display:"flex"}}><Icon d={ic.back} size={16} color={C.sub}/></div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-      <div style={{textAlign:"center",padding:"10px 0 4px"}}>
-        <div style={{fontSize:12,color:C.sub,marginBottom:4}}>{APP_NAME} · v{APP_VERSION} · Build {APP_BUILD}</div>
-        <div style={{fontSize:11,color:C.sub,marginBottom:12}}>Desenvolvido com ❤️ para a comunidade veterinária global</div>
-        <button onClick={()=>window.open("mailto:beta@vetconnect.pt?subject=Feedback+Beta+"+APP_VERSION,"_blank")}
-          style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 16px",fontSize:12,cursor:"pointer",color:C.teal,fontWeight:600}}>
-          📧 Enviar Feedback Beta
-        </button>
-      </div>
-    </div>
-  );
-
-  const TABS={home:Home,community:Community,learn:Learn,market:Market,clinic:Clinic,profile:Profile,settings:Settings};
+  const TABS={home:Home,community:Community,learn:Learn,market:Market,clinic:Clinic,profile:Profile,settings:SettingsScreen};
   const ActiveComp=TABS[mainTab]||Home;
   const tabLabel=NAV.find(n=>n.id===mainTab)?.label||MORE_ITEMS.find(n=>n.id===mainTab)?.label||mainTab;
   const [tabLoading, setTabLoading] = useState(false);
@@ -4942,7 +5208,10 @@ export default function VetConnect() {
               )}
               {tabLoading
                 ? <SkeletonFeed C={C}/>
-                : <ActiveComp C={C} t={t} isMobile={isMobile} setMainTab={changeTab} me={me} profileLoaded={!!profile} onSignOut={signOut} onProfileSaved={()=>refreshProfile(session.user.id)}/>
+                : <ActiveComp C={C} t={t} isMobile={isMobile} setMainTab={changeTab} me={me} profileLoaded={!!profile} onSignOut={signOut} onProfileSaved={()=>refreshProfile(session.user.id)}
+                  email={session?.user?.email||""} settings={profile?.settings||{}} directoryVisible={profile?.directory_visible!==false}
+                  dark={dark} setDark={setDark} currentLang={currentLang} setLangOpen={setLangOpen}
+                  onSettingsSaved={()=>refreshProfile(session.user.id)}/>
               }
             </div>
 
