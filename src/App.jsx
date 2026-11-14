@@ -262,6 +262,47 @@ const LEARN_ADS = [
 // ══════════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN — entrada directa para utilizadores registados
 // ══════════════════════════════════════════════════════════════════════════════
+// URL para onde o Supabase redireciona depois de cliques em emails de auth
+// (reset de password, confirmação de registo) e do OAuth. Usa a origem atual,
+// por isso funciona igual em produção, previews Vercel e localhost — desde que
+// a origem esteja na allow-list "Redirect URLs" do dashboard Supabase.
+const AUTH_REDIRECT = () => window.location.origin;
+
+// Detetado de forma síncrona no carregamento do módulo, antes de o supabase-js
+// limpar o hash do URL — evita perder o evento PASSWORD_RECOVERY se este for
+// emitido antes de o listener em VetConnect() estar registado.
+const INITIAL_RECOVERY = typeof window !== "undefined" && /type=recovery/.test(window.location.hash);
+
+function ResetPasswordScreen({ C, onDone }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const submit = async () => {
+    setError("");
+    if (pw.length < 8) { setError("A password deve ter pelo menos 8 caracteres."); return; }
+    if (pw !== pw2) { setError("As passwords não coincidem."); return; }
+    setLoading(true);
+    const { error: err } = await supabase.auth.updateUser({ password: pw });
+    setLoading(false);
+    if (err) { setError(err.message); return; }
+    onDone();
+  };
+  return (
+    <div style={{position:"fixed",inset:0,background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{...card(C),width:"100%",maxWidth:380,padding:28}}>
+        <div style={{fontSize:40,textAlign:"center",marginBottom:8}}>🔑</div>
+        <h2 style={{margin:"0 0 6px",fontSize:20,color:C.text,textAlign:"center"}}>Definir nova password</h2>
+        <p style={{margin:"0 0 18px",fontSize:13,color:C.sub,textAlign:"center"}}>Escolha uma nova password para a sua conta.</p>
+        <input type="password" placeholder="Nova password" value={pw} onChange={e=>setPw(e.target.value)} autoComplete="new-password" style={{...inp(C),marginBottom:10}}/>
+        <input type="password" placeholder="Confirmar password" value={pw2} onChange={e=>setPw2(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")submit();}} autoComplete="new-password" style={{...inp(C),marginBottom:12}}/>
+        {error&&<div style={{color:C.rose,fontSize:12.5,marginBottom:10}}>{error}</div>}
+        <button onClick={submit} disabled={loading} style={{...btn(C),width:"100%",justifyContent:"center",opacity:loading?0.7:1}}>{loading?"A guardar…":"Guardar password"}</button>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onRegister, C, t, dark, setDark, lang, setLang }) {
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
@@ -283,7 +324,7 @@ function LoginScreen({ onRegister, C, t, dark, setDark, lang, setLang }) {
 
   const loginWithGoogle = async () => {
     setError("");
-    const { error: err } = await supabase.auth.signInWithOAuth({ provider: "google" });
+    const { error: err } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: AUTH_REDIRECT() } });
     if(err) setError(err.message);
   };
 
@@ -292,7 +333,7 @@ function LoginScreen({ onRegister, C, t, dark, setDark, lang, setLang }) {
   const forgotPassword = async () => {
     if(!email.trim()){ setError("Introduza o seu email para recuperar a password."); return; }
     setError("");
-    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim());
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: AUTH_REDIRECT() });
     if(err) setError(err.message);
     else setForgotSent(true);
   };
@@ -436,7 +477,7 @@ function Onboarding({ onBack, C, t }) {
     const { data, error: err } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { data: { full_name: name.trim(), specialty: spec, country, license, interests } },
+      options: { emailRedirectTo: AUTH_REDIRECT(), data: { full_name: name.trim(), specialty: spec, country, license, interests } },
     });
     setLoading(false);
     if(err) { setError(err.message); return; }
@@ -4527,11 +4568,15 @@ const mapNotifRow = (row) => ({
 export default function VetConnect() {
   // ── Auth (Supabase) ──────────────────────────────────────────────────────
   const [session, setSession] = useState(undefined); // undefined = ainda a carregar, null = sem sessão
+  const [recovering, setRecovering] = useState(INITIAL_RECOVERY); // veio de um link de reset de password
   const [profile, setProfile] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      if (event === "PASSWORD_RECOVERY") setRecovering(true);
+      setSession(sess);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -4660,7 +4705,7 @@ export default function VetConnect() {
     <div style={{maxWidth:isMobile?"100%":600,margin:"0 auto"}}>
       <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text,marginBottom:18}}>⚙️ {t("settings")}</div>
       {[
-        {section:"Conta", items:[{label:t("edit_profile"),icon:"👤",sub:"Nome, especialidade, foto",action:()=>changeTab("profile")},{label:"Verificação de Identidade",icon:"🔒",sub:"OMV / CRMV número de cédula"},{label:"Alterar Password",icon:"🔑",sub:"Segurança da conta",action:()=>supabase.auth.resetPasswordForEmail(session.user.email)}]},
+        {section:"Conta", items:[{label:t("edit_profile"),icon:"👤",sub:"Nome, especialidade, foto",action:()=>changeTab("profile")},{label:"Verificação de Identidade",icon:"🔒",sub:"OMV / CRMV número de cédula"},{label:"Alterar Password",icon:"🔑",sub:"Segurança da conta",action:()=>supabase.auth.resetPasswordForEmail(session.user.email, { redirectTo: AUTH_REDIRECT() }).then(({error})=>alert(error?error.message:"Enviámos um email com o link para definir uma nova password."))}]},
         {section:"Aparência", items:[{label:"Modo Escuro",icon:dark?"🌙":"☀️",sub:dark?"Activo":"Inactivo",action:()=>setDark(d=>!d),toggle:true,value:dark},{label:"Idioma",icon:currentLang.flag,sub:currentLang.label,action:()=>setLangOpen(true)}]},
         {section:"Notificações", items:[{label:"Notificações Push",icon:"🔔",sub:"Novas mensagens, likes e comentários"},{label:"Emails",icon:"📧",sub:"Resumo semanal e alertas"},{label:"Lives e Eventos",icon:"📡",sub:"Avisos de transmissões ao vivo"}]},
         {section:"Privacidade", items:[{label:"Visibilidade do Perfil",icon:"👁",sub:"Público · Apenas colegas"},{label:"Dados Pessoais",icon:"🛡️",sub:"RGPD — exportar ou eliminar dados"},{label:"Sessões Activas",icon:"📱",sub:"Gerir dispositivos ligados"}]},
@@ -4727,6 +4772,10 @@ export default function VetConnect() {
     <div style={{position:"fixed",inset:0,background:LIGHT.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{fontSize:48}}>🐾</div>
     </div>
+  );
+
+  if(recovering && session) return (
+    <ResetPasswordScreen C={C} onDone={()=>{ setRecovering(false); window.history.replaceState(null, "", window.location.pathname); }}/>
   );
 
   if(!onboarded) return (
