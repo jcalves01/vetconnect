@@ -2857,6 +2857,59 @@ function Market({ C, t, isMobile, me, setMainTab }) {
   ];
   const [supplierSearch, setSupplierSearch] = useState("");
   const [supplierQuery, setSupplierQuery] = useState("");
+
+  // "Ser fornecedor": one application per user. undefined = still loading, null = none.
+  const [mySupplierApp, setMySupplierApp] = useState(undefined);
+  const [supplierFormOpen, setSupplierFormOpen] = useState(false);
+  const emptySupplierForm = { company_name:"", category:"", description:"", contact_email:"", contact_phone:"", website:"" };
+  const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
+  const [supplierSaving, setSupplierSaving] = useState(false);
+  const [supplierError, setSupplierError] = useState("");
+  const SUPPLIER_STATUS = { pending:"pendente", approved:"aprovado", rejected:"recusado" };
+  const SUPPLIER_FIELDS = [
+    { key:"company_name", label:"Nome da empresa *" },
+    { key:"category", label:"Categoria (ex.: Laboratório, Nutrição, Equipamento)" },
+    { key:"description", label:"Descrição dos produtos ou serviços", multiline:true },
+    { key:"contact_email", label:"Email de contacto *", type:"email" },
+    { key:"contact_phone", label:"Telefone", type:"tel" },
+    { key:"website", label:"Website", type:"url" },
+  ];
+
+  useEffect(() => {
+    if(!me?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("supplier_applications")
+        .select("id, company_name, status, created_at")
+        .eq("applicant_id", me.id)
+        .maybeSingle();
+      if(cancelled) return;
+      if(error){ console.error(error); setMySupplierApp(null); return; }
+      setMySupplierApp(data || null);
+    })();
+    return () => { cancelled = true; };
+  }, [me?.id]);
+
+  const submitSupplierApplication = async () => {
+    const f = Object.fromEntries(Object.entries(supplierForm).map(([k,v]) => [k, v.trim()]));
+    if(!f.company_name || !f.contact_email){ setSupplierError("Preencha o nome da empresa e o email de contacto."); return; }
+    if(!/^\S+@\S+\.\S+$/.test(f.contact_email)){ setSupplierError("Introduza um email válido."); return; }
+    setSupplierSaving(true); setSupplierError("");
+    const { data, error } = await supabase
+      .from("supplier_applications")
+      .insert({ ...f, applicant_id: me.id })
+      .select("id, company_name, status, created_at")
+      .single();
+    setSupplierSaving(false);
+    if(error){
+      setSupplierError(error.code === "23505" ? "Já tem um pedido de fornecedor registado." : error.message);
+      return;
+    }
+    setMySupplierApp(data);
+    setSupplierForm(emptySupplierForm);
+    setSupplierFormOpen(false);
+  };
   const [marketVisible, setMarketVisible] = useState(4);
   const [jobsVisible, setJobsVisible] = useState(3);
   const [contactItem, setContactItem] = useState(null);
@@ -3440,7 +3493,9 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text}}>Catálogos de Fornecedores</div>
-              <button onClick={()=>triggerMktFb("supplier")} style={btn(C,"primary",isMobile)}>{mktFb==="supplier"?"✓ Formulário enviado!":"+ "+t("become_supplier")}</button>
+              <button onClick={()=>{ setSupplierError(""); setSupplierFormOpen(true); }} disabled={mySupplierApp!==null} style={{...btn(C,"primary",isMobile),opacity:mySupplierApp===null?1:0.7}}>
+                {mySupplierApp===undefined?"A carregar…":mySupplierApp?`Pedido ${SUPPLIER_STATUS[mySupplierApp.status]||mySupplierApp.status}`:"+ "+t("become_supplier")}
+              </button>
             </div>
             <div style={{color:C.sub,fontSize:12,marginBottom:14}}>Consulte produtos, preçários e contacte directamente</div>
             <SearchBar
@@ -3474,6 +3529,34 @@ Tom: profissional, directo, útil. Usa emojis com moderação para facilitar a l
             </div>
           </div>
         )
+      )}
+
+      {/* "Ser fornecedor" form */}
+      {supplierFormOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>!supplierSaving&&setSupplierFormOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
+            <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontWeight:800,fontSize:15,color:C.text}}>🏷️ Ser fornecedor</div>
+              <button onClick={()=>setSupplierFormOpen(false)} disabled={supplierSaving} aria-label={t("close")} style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:20}}>✕</button>
+            </div>
+            <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{fontSize:12,color:C.sub,lineHeight:1.6}}>Envie os dados da sua empresa. A equipa VetConnect analisa o pedido antes de o fornecedor aparecer no catálogo.</div>
+              {SUPPLIER_FIELDS.map(f=>(
+                <div key={f.key}>
+                  <label style={{fontSize:11,fontWeight:700,color:C.sub,display:"block",marginBottom:5}}>{f.label.toUpperCase()}</label>
+                  {f.multiline
+                    ? <textarea rows={3} value={supplierForm[f.key]} onChange={e=>setSupplierForm(prev=>({...prev,[f.key]:e.target.value}))} style={{...inp(C),fontSize:13,resize:"vertical"}}/>
+                    : <input type={f.type||"text"} value={supplierForm[f.key]} onChange={e=>setSupplierForm(prev=>({...prev,[f.key]:e.target.value}))} style={{...inp(C),fontSize:13}}/>}
+                </div>
+              ))}
+              {supplierError&&<div style={{background:C.rose+"15",border:`1px solid ${C.rose}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:C.rose}}>⚠️ {supplierError}</div>}
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
+                <button onClick={()=>setSupplierFormOpen(false)} disabled={supplierSaving} style={btn(C,"outline",true)}>Cancelar</button>
+                <button onClick={submitSupplierApplication} disabled={supplierSaving} style={{...btn(C,"primary",true),opacity:supplierSaving?0.7:1}}>{supplierSaving?"A enviar…":"Enviar pedido"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Job applicants modal */}
