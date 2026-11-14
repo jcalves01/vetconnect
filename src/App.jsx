@@ -1057,7 +1057,7 @@ function Home({ C, t, isMobile, setMainTab, me }) {
           </div>
         )}
         <div style={{display:"flex",gap:10,marginBottom:10}}>
-          <div style={ava(C,isMobile?36:42,true)}>{me.avatar}</div>
+          <Avatar C={C} size={isMobile?36:42} online src={me.avatarUrl} initials={me.avatar}/>
           <textarea value={text} onChange={e=>setText(e.target.value)} placeholder={t("write_post")}
             style={{...inp(C),resize:"none",height:isMobile?60:76,flex:1,fontSize:isMobile?13:14}}/>
         </div>
@@ -1232,7 +1232,7 @@ function Home({ C, t, isMobile, setMainTab, me }) {
                 </div>
                 {/* New comment input */}
                 <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                  <div style={ava(C,32,true)}>{me.avatar}</div>
+                  <Avatar C={C} size={32} online src={me.avatarUrl} initials={me.avatar}/>
                   <div style={{flex:1}}>
                     <textarea
                       value={commentInputs[p.id]||""}
@@ -4156,7 +4156,7 @@ function SOAPCases({ C, t, isMobile, me }) {
             </div>
           ))}
           <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-            <div style={ava(C,30,true)}>{me.avatar}</div>
+            <Avatar C={C} size={30} online src={me.avatarUrl} initials={me.avatar}/>
             <div style={{flex:1}}>
               <textarea value={caseInputs[sel.id]||""} onChange={e=>setCaseInputs(p=>({...p,[sel.id]:e.target.value}))}
                 onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submitCaseComment(sel.id);}}}
@@ -4477,7 +4477,7 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
         <div style={{height:isMobile?90:130,background:`linear-gradient(135deg,${C.teal},${C.tealL},${C.purple})`}}/>
         <div style={{padding:isMobile?14:20}}>
           <div style={{display:"flex",alignItems:"flex-end",gap:12,marginTop:isMobile?-32:-42,marginBottom:14,flexWrap:isMobile?"wrap":"nowrap"}}>
-            <div style={{...ava(C,isMobile?64:82),fontSize:isMobile?22:28,border:`4px solid ${C.surface}`,boxShadow:"0 4px 16px rgba(0,0,0,0.12)"}}>{u.avatar}</div>
+            <Avatar C={C} size={isMobile?64:82} src={u.avatarUrl} initials={u.avatar} style={{fontSize:isMobile?22:28,border:`4px solid ${C.surface}`,boxShadow:"0 4px 16px rgba(0,0,0,0.12)"}}/>
             <div style={{flex:1}}>
               <div style={{fontWeight:800,fontSize:isMobile?16:20,color:C.text,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 {u.name}
@@ -4632,6 +4632,13 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Definições ────────────────────────────────────────────────────────────────
+// Shows the user's photo when there is one, otherwise the initials badge.
+function Avatar({ C, size=40, online=false, src, initials, style, ...rest }) {
+  const base = ava(C, size, online);
+  if (src) return <img src={src} alt="" {...rest} style={{...base, objectFit:"cover", background:"none", display:"block", ...style}}/>;
+  return <div {...rest} style={{...base, ...style}}>{initials}</div>;
+}
+
 function SettingRow({ C, icon, label, sub, onClick, toggle, value, last }) {
   const clickable = !!onClick;
   return (
@@ -4672,6 +4679,8 @@ function SettingsScreen({ C, t, isMobile, me, email, settings, directoryVisible,
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);     // {type:"ok"|"err", text}
   const [licenseInput, setLicenseInput] = useState(me.license || "");
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const prefs = settings || {};
@@ -4766,6 +4775,46 @@ function SettingsScreen({ C, t, isMobile, me, email, settings, directoryVisible,
     setBusy(false);
   };
 
+  // Photos live in the public post-media bucket under the user's own folder, which
+  // the storage policies already restrict to that user.
+  const AVATAR_EXT = {"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
+  const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+  const avatarPathOf = (url) => {
+    const marker = "/post-media/";
+    const i = url ? url.indexOf(marker) : -1;
+    if (i === -1) return null;
+    const path = decodeURIComponent(url.slice(i + marker.length).split("?")[0]);
+    return path.startsWith(`${me.id}/avatar-`) ? path : null;
+  };
+
+  const uploadAvatar = async (file) => {
+    if (!file) return;
+    if (!AVATAR_EXT[file.type]) { setMsg({ type:"err", text:"Use uma imagem JPG, PNG ou WebP." }); return; }
+    if (file.size > AVATAR_MAX_BYTES) { setMsg({ type:"err", text:"A imagem pode ter no máximo 5 MB." }); return; }
+    setAvatarBusy(true); setMsg(null);
+    const bucket = supabase.storage.from("post-media");
+    const path = `${me.id}/avatar-${Date.now()}.${AVATAR_EXT[file.type]}`;
+    const { error: upErr } = await bucket.upload(path, file, { contentType: file.type });
+    if (upErr) { setAvatarBusy(false); setMsg({ type:"err", text:upErr.message }); return; }
+    const { data: pub } = bucket.getPublicUrl(path);
+    const ok = await updateProfile({ avatar_url: pub.publicUrl });
+    if (ok) {
+      const old = avatarPathOf(me.avatarUrl);
+      if (old) await bucket.remove([old]);
+    } else {
+      await bucket.remove([path]);
+    }
+    setAvatarBusy(false);
+  };
+
+  const removeAvatar = async () => {
+    setAvatarBusy(true); setMsg(null);
+    const old = avatarPathOf(me.avatarUrl);
+    const ok = await updateProfile({ avatar_url: null });
+    if (ok && old) await supabase.storage.from("post-media").remove([old]);
+    setAvatarBusy(false);
+  };
+
   const sections = [
     {title:"Conta", rows:[
       {icon:"👤", label:t("edit_profile"), sub:"Nome, especialidade, país, cédula, interesses e bio", onClick:()=>setMainTab("profile")},
@@ -4795,6 +4844,21 @@ function SettingsScreen({ C, t, isMobile, me, email, settings, directoryVisible,
   return (
     <div style={{maxWidth:isMobile?"100%":600,margin:"0 auto"}}>
       <div style={{fontWeight:800,fontSize:isMobile?17:20,color:C.text,marginBottom:18}}>⚙️ {t("settings")}</div>
+      <div style={card(C)}>
+        <div style={{fontWeight:700,fontSize:14,color:C.text,marginBottom:12}}>📷 Foto de perfil</div>
+        <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          <Avatar C={C} size={72} src={me.avatarUrl} initials={me.avatar}/>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}}
+              onChange={e=>{ const file=e.target.files?.[0]; e.target.value=""; uploadAvatar(file); }}/>
+            <button onClick={()=>avatarInputRef.current?.click()} disabled={avatarBusy} style={{...btn(C,"primary",true),opacity:avatarBusy?0.6:1}}>
+              {avatarBusy?"A enviar…":(me.avatarUrl?"Alterar foto":"Adicionar foto")}
+            </button>
+            {me.avatarUrl&&<button onClick={removeAvatar} disabled={avatarBusy} style={{...btn(C,"outline",true),opacity:avatarBusy?0.6:1}}>Remover</button>}
+          </div>
+          <div style={{fontSize:11,color:C.sub,width:"100%"}}>JPG, PNG ou WebP, até 5 MB.</div>
+        </div>
+      </div>
       {msg&&(
         <div role="status" style={{background:msg.type==="err"?C.rose+"15":C.emerald+"15",border:`1px solid ${msg.type==="err"?C.rose:C.emerald}40`,borderRadius:8,padding:"9px 12px",fontSize:12,color:msg.type==="err"?C.rose:C.emerald,marginBottom:14}}>
           {msg.type==="err"?"⚠️ ":"✓ "}{msg.text}
@@ -4909,6 +4973,7 @@ export default function VetConnect() {
     name: profile?.full_name || session?.user?.email || "Utilizador",
     spec: profile?.specialty || "Sem especialidade definida",
     avatar: initialsOf(profile?.full_name || session?.user?.email),
+    avatarUrl: profile?.avatar_url || null,
     country: profile?.country || "",
     license: profile?.license || "",
     bio: profile?.bio || "",
@@ -5094,7 +5159,7 @@ export default function VetConnect() {
         ))}
       </nav>
       <div style={{padding:14,borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",gap:9,cursor:"pointer"}} onClick={()=>{changeTab("profile");if(isMobile||isTablet)setSidebarOpen(false);}} role="button" aria-label="Perfil">
-        <div style={ava(C,34,true)}>{me.avatar}</div>
+        <Avatar C={C} size={34} online src={me.avatarUrl} initials={me.avatar}/>
         <div style={{flex:1,minWidth:0}}>
           <div style={{color:"#fff",fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{me.name}</div>
           <div style={{color:C.mist,fontSize:10,display:"flex",alignItems:"center",gap:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{width:6,height:6,borderRadius:"50%",background:C.emerald,display:"inline-block",flexShrink:0}}/> {me.spec}</div>
@@ -5179,7 +5244,7 @@ export default function VetConnect() {
                 <Icon d={ic.bell} size={17} color={C.sub}/>
                 {unreadNotifs>0&&<div style={{position:"absolute",top:3,right:3,width:8,height:8,background:C.rose,borderRadius:"50%",border:`2px solid ${C.surface}`}}/>}
               </button>
-              <div style={{...ava(C,isMobile?30:36,true),flexShrink:0,cursor:"pointer"}} onClick={()=>changeTab("profile")} role="button" aria-label="Perfil">{me.avatar}</div>
+              <Avatar C={C} size={isMobile?30:36} online src={me.avatarUrl} initials={me.avatar} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>changeTab("profile")} role="button" aria-label="Perfil"/>
             </div>
 
             <div style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px 80px":"22px 22px 22px"}}>
