@@ -4,115 +4,77 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-VetConnect — a professional social network for veterinarians, currently a single-file React "artifact" (`src/App.jsx`, ~3900 lines) deployed as a Vite static site on Vercel with two serverless functions proxying the Anthropic API. This is a rewrite-in-place of an earlier, more elaborate Supabase-backed version — see "Previous architecture" below if that version's patterns are ever relevant again.
+VetConnect — a professional social network for veterinarians. The UI is a single React file (`src/App.jsx`, ~5300 lines) deployed as a Vite static site on Vercel. Two serverless functions proxy LLM providers, and Supabase provides auth and all persistent data.
 
 ```
-index.html          — mounts #root, loads /src/main.jsx
-src/
-  main.jsx          — ReactDOM root, renders <App/>
-  App.jsx           — the entire app: theming, i18n, mock data, every screen/tab
-  lib/
-    supabase.js     — Supabase client singleton (anon key, safe for the browser)
-api/
-  diagnosis.js      — POST /api/diagnosis, direct fetch to api.anthropic.com
-  jobs-report.js    — POST /api/jobs-report, same pattern
-supabase/migrations/0001_profiles.sql   — profiles table + RLS + auto-provisioning trigger
-supabase/migrations/0002_posts.sql      — posts/attachments/likes/comments + post-media bucket
-supabase/migrations/0003_soap_cases.sql — soap_cases + soap_case_comments
-supabase/migrations/0004_jobs.sql       — jobs + saved_jobs
-supabase/migrations/0005_messages.sql   — conversations/messages (1:1) + realtime
-supabase/migrations/0006_notifications.sql      — notifications + triggers on likes/comments/messages
-supabase/migrations/0007_groups_and_meetings.sql — group chats (extends 0005's tables) + meetings
-supabase/migrations/0008_fix_group_conversation_select.sql — RLS fix for group creation (see below)
-supabase/migrations/0009_diagnosis_history.sql  — AI diagnosis history (private, per-user)
-supabase/migrations/0010_job_applications.sql   — job applications ("Candidatar")
-supabase/migrations/0011_market_items.sql       — marketplace listings
-supabase/migrations/0012_courses_and_live_events.sql — Learn: courses + live events/registrations/chat
-package.json / vite.config.js / vercel.json — standard Vite + Vercel-functions setup
-env.example         — ANTHROPIC_API_KEY (+ optional GEMINI/OPENAI/DEEPSEEK_API_KEY), VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+index.html / src/main.jsx   — mount point; renders <VetConnect/>
+src/App.jsx                 — the entire UI (theme, i18n, every tab, Settings, auth screens)
+src/lib/supabase.js         — Supabase client singleton (anon key)
+api/diagnosis.js            — POST /api/diagnosis (differential diagnosis, 4 providers)
+api/jobs-report.js          — POST /api/jobs-report (job-market report, 4 providers)
+supabase/migrations/0001…0014 — schema, RLS, triggers; run manually, in order, in the Supabase SQL editor
+vercel.json / vite.config.js / env.example
 ```
-
-`npm install && npm run build` succeeds. `vite.config.js` has no dev-time proxy for `/api/*`, so `npm run dev` alone won't reach the AI endpoints locally — use `vercel dev` (serves frontend + functions together) when working on `AIDiagnosis` or the jobs-report generator.
-
-Everything git tracks at `HEAD` (`ab3f2fd`) belongs to a **previous, different** architecture (Supabase-backed, multi-file components under `src/components/`) and shows as deleted in `git status` — it's fully superseded on disk but still readable via `git show HEAD:<path>` if any of its patterns need to be revisited.
-
-## Architecture of `App.jsx` (the single-file artifact)
-
-Everything lives in one file, all styled with inline style objects (no CSS files, no CSS-in-JS library, no Tailwind). Key structure, top to bottom:
-
-- **Design tokens**: `LIGHT` / `DARK` color objects and style-object factories (`card()`, `btn()`, `inp()`, `tag()`, `ava()`) that every component calls with the active theme (`C`) — this is the app's only "design system."
-- **i18n**: `LANGS` (available languages) + `TR` (translation dict) + `getTR(lang, key)`; components read via `useLang()`/`t(key)` from `LangCtx`. Falls back to Portuguese (`TR.pt`) for missing keys.
-- **Persistence**: `usePersistentState(key, initial)` wraps `window.storage.get/set` (the Claude.ai artifact sandbox API) instead of `localStorage` — this will not work in a normal browser/Vercel deploy without being swapped out first.
-- **Mock data block** (`// ── Mock Data ──`): now down to `SUPPLIERS`, `DRUGS`, `PROTOCOLS`, `SYMPTOMS`, `LEARN_ADS`, lab-panel field defs (`BLOOD_P`/`URINE_P`/`FECES_P`), etc. — deliberately-static **reference/catalog content** (curated vendor listings, drug/protocol references, sponsored ads), not user-generated activity, so it's intentionally not backed by a table (there's no real supplier/advertiser onboarding flow in this app). Every mock array that stood in for real user activity has now been removed as its area went real: `POSTS`/`JOBS`/`MSGS`/`CHAT_INIT`/`GROUPS`/`EXPERTS_MAP`/`USERS`/`CASES_SOAP`/`COURSES`/`LIVE_EVENTS`/`MARKET_ITEMS`. **Everything that represents real user/clinical activity is now backed by Supabase**: auth, profiles, the feed, SOAP cases, jobs (+ applications), direct+group messages, meetings, notifications, the colleague directory, search over people/cases/courses/marketplace, AI diagnosis history, marketplace listings, and Learn's courses/live-events/enrollment/live-chat. The one deliberate exception is **live video/streaming and voice/video calls**, which stay non-functional placeholders — there's no third-party streaming/calling service (Daily.co, Twilio, Mux, etc.) integrated, and building one is a distinct, separate piece of work from database wiring. See "Auth & database" below for the exact boundary.
-- **Top-level tab components**, wired up in `TABS` inside `export default function VetConnect()`: `Home`, `Community`, `Learn`, `Market` (with `SupplierDetail`), `Clinic` (hosting `AIDiagnosis`, `ClinicalCalc`, `DrugDB`, `Protocols`, `SOAPCases`, `ExpertMap`), `Profile`, plus an inline `Settings`. Navigation is `useState` tab-switching (`mainTab`), not a router. `ActiveComp` is rendered with a `me` prop (see below) in addition to `C`/`t`/`isMobile`/`setMainTab`.
-- **AI features call two backend routes, both multi-provider**: `AIDiagnosis` POSTs to `/api/diagnosis` with `{species, breed, age, sex, symptoms, extra, labText, provider}` and expects back `{resumo, urgencia, proximos_passos, diagnosticos:[{nome, probabilidade, justificacao, testes, tratamento_inicial}], provider}`; the jobs-report generator in `Market` POSTs to `/api/jobs-report` with `{criteria, jobCount, jobList, provider}` and expects `{report, provider}`. Both routes are self-contained — no shared helper module (unlike the old `api/_anthropic.js`) — each inlining its own prompt building, provider dispatch, fetch calls, and response extraction; `jobs-report.js` duplicates the exact same 4-provider dispatch shape as `diagnosis.js` (see next bullet) rather than importing it, consistent with the file's existing self-contained style.
-- **Both routes support 4 LLM providers** — `provider` in the request body selects `anthropic` (default)/`gemini`/`openai`/`deepseek`; an unrecognized or omitted value falls back to `anthropic`. Each has its own `call<Provider>()` function (`PROVIDERS` dispatch map) — OpenAI and DeepSeek share a single `callOpenAICompatible()` since both speak the same Chat Completions request/response shape (`data.choices[0].message.content`) at their own base URLs; Gemini's shape is `POST .../models/{model}:generateContent?key=...` → `data.candidates[0].content.parts[].text`. Model IDs are `ANTHROPIC_MODEL`/`GEMINI_MODEL`/`OPENAI_MODEL`/`DEEPSEEK_MODEL` env vars with hardcoded fallbacks (all optional, shared by both routes — only set the ones for providers you actually want enabled; a provider with no key throws a clear "not configured" error only when it's the one selected, not at import time). A missing/invalid key or upstream HTTP error is thrown as an `Error` carrying `.status` (defaults to 500), which the handler's catch block maps back to the response status — this is also where a **pre-existing bug** in both clients was fixed: `AIDiagnosis`/`Market`'s error handling read `e?.error?.message` (expecting an object) or didn't read the error body at all, when the APIs always returned `{error: "<string>"}` — so upstream error detail never reached the UI. `diagnosis.js`'s successful response also echoes back `provider` so `AIDiagnosis` can badge which model produced a given result (including from `diagnosis_history`, since the whole parsed response — provider field included — is what gets stored in that table's `result jsonb` column); `jobs-report.js`'s does the same but the report modal doesn't currently surface it in the UI. Both `AIDiagnosis` and the jobs-report modal have their own "Modelo IA" `<select>` driving the request.
-- **Notification engine**: real, backed by `supabase/migrations/0006_notifications.sql` — see the "Auth & database" bullet on that migration below. The engine only covers types with a real trigger behind them (`like`/`comment`/`case_comment`/`msg`); there's no follow system or live-event RSVP, so those old mock notification types have no real equivalent.
-
-## Auth & database (Supabase)
-
-Real authentication and a real `profiles` table were added on top of the single-file artifact — this is the one part of the app backed by an actual database; everything else in "Mock data block" above is still client-side only.
-
-- **`src/lib/supabase.js`** — the only client instance, built from `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`. Logs an error (doesn't throw) if those env vars are missing.
-- **`supabase/migrations/0001_profiles.sql`** — `profiles` table (`full_name`, `specialty`, `country`, `license`, `interests text[]`, `bio`, `avatar_url`), RLS (`select` for any authenticated user, `insert`/`update` only your own row), and a `handle_new_user()` trigger on `auth.users` that auto-creates the profile row from `raw_user_meta_data` on signup — this SQL has to be run manually in the Supabase SQL editor (or via the CLI), it is not applied automatically.
-- **`VetConnect()`** owns all auth state: `session` (via `supabase.auth.getSession()` + `onAuthStateChange`), `profile` (fetched from `profiles` by `session.user.id`, refetchable via `refreshProfile`), and a derived **`me`** object shaped exactly like a `USERS[]` entry (`id`, `name`, `spec`, `avatar` (initials), `country`, `license`, `bio`, `interests`) so existing code that expected `USERS[0]` as "the current user" only needed its reference swapped, not restructured. `me` is passed down as a prop to every `ActiveComp` (so `Home`, `Community`, `Market`, `Clinic`→`SOAPCases`, and `Profile` all receive it, whether or not they currently use it); the top bar avatar and sidebar footer read it directly since those are defined inside `VetConnect()`'s own closure.
-- **`onboarded` = `!!session`**, **`onboardLoaded` = `session !== undefined`** — same two variable names the old `usePersistentState("vc_onboarded", …)` gate used, so the splash-screen/login-vs-app branching logic further down didn't need to change, only what feeds those two booleans.
-- **`LoginScreen`** calls `supabase.auth.signInWithPassword` / `signInWithOAuth({provider:"google"})` / `resetPasswordForEmail`. Google sign-in only works once the provider is enabled in the Supabase dashboard (Authentication → Providers) — until then it fails gracefully with the returned error message.
-- **`Onboarding`** now collects name/email/password *and* specialty/country/license/interests in one wizard, then calls `supabase.auth.signUp({ email, password, options: { data: {...} } })` on finish — that metadata is what `handle_new_user()` reads to populate the new profile row. If the Supabase project requires email confirmation, `data.session` comes back empty and Onboarding shows a "check your email" screen instead of proceeding.
-- **`Profile`** reads/writes the real row (`supabase.from("profiles").update(...)`) instead of local-only state; it shows a skeleton until `profileLoaded` (`!!profile`) is true. Its "posts"/"cases" sub-tabs load the real `posts`/`soap_cases` tables filtered by `author_id = me.id` (fetched once on mount, capped at 10 each) — no longer the old mock `POSTS`/`CASES_SOAP` filtered by the hardcoded `USERS[0].id === 1`.
-- **Settings → Sessão → "Terminar Sessão"** calls `supabase.auth.signOut()`.
-- **`supabase/migrations/0002_posts.sql`** — `posts` (`author_id`, `type`, `content`, `tags`, `soap jsonb`, denormalized `likes_count`/`comments_count`), `post_attachments` (`type`/`url`/`name`, RLS keyed off the parent post's `author_id`), `post_likes` (composite PK `(post_id, user_id)`) and `post_comments`, plus `AFTER INSERT/DELETE` triggers on `post_likes`/`post_comments` that keep `posts.likes_count`/`comments_count` in sync (the feed reads those denormalized columns directly rather than joining+counting on every load). Also provisions a **public** Storage bucket `post-media` with policies restricting uploads/deletes to a path prefixed by the uploader's own `auth.uid()` (`storage.foldername(name))[1] = auth.uid()::text`) — public read is a deliberate simplicity trade-off (plain `<img>`/`<video src>`, no signed URLs) since the whole feed already sits behind login; the only gap is a direct file URL being viewable without a session.
-- **`Home`** now loads the feed from `posts` (joined with `profiles`, `post_attachments`, `post_likes`) via `loadPosts()`/`mapPostRow()` on mount, instead of `usePersistentState("vc_posts", POSTS)`. `submitPost` inserts the row, then uploads any attachment `File`s (kept on each `postAttachments` entry as `.file` — the photo/doc/video picker handlers all set this now) to `post-media/${me.id}/${Date.now()}-${filename}`, then inserts the resulting public URLs into `post_attachments`. Likes (`toggleLike`) and comments (`submitComment`, comments lazy-fetched per post in `toggleComments`) write straight to their tables with an optimistic local update alongside. `POSTS`/`USERS` mock data is no longer used by `Home` at all.
-- **`SearchHub`** queries all four of its result sections against real tables now: people ("vets") against `profiles`, "cases" against `soap_cases`, "training" against `courses`, "marketplace" against `market_items` — each a debounced `ilike` on the relevant text column(s), same pattern repeated four times in one `setTimeout`. People results always render `online:false`/`verified:false` (no presence/verification system exists). Clicking a person result calls `get_or_create_dm()` before switching to Community, same as `ExpertMap`'s "Contactar".
-- **`supabase/migrations/0003_soap_cases.sql`** — `soap_cases` (`author_id`, `title`, `species`/`breed`/`age`/`sex`, `status`, `subjective`/`objective`/`assessment`/`plan`, denormalized `replies_count`) + `soap_case_comments`, same select-authenticated/insert-own RLS and comment-count trigger pattern as `0002_posts.sql`. **`SOAPCases`** (Clinic → Casos SOAP) loads via `loadCases()`/`mapCaseRow()`, creates cases with `createCase()`, and lazy-loads/posts comments per case (`openCase()`/`submitCaseComment()`) exactly like `Home`'s post-comment flow — this is a separate table from a post's optional embedded SOAP block (`posts.soap` jsonb), which was already real.
-- **`supabase/migrations/0004_jobs.sql`** — `jobs` (`author_id`, `title`, `company`, `type`, `loc`, `salary`, `description`, `urgent`) + `saved_jobs` (composite PK `(job_id,user_id)`, own-rows-only RLS, mirrors `post_likes`). The mock `JOBS` data had a random 60–90% "match" field simulating AI matching; that's not persisted — `computeJobMatch(job, me)` in `Market` derives a lightweight relevance % client-side from overlap between the job's text and the viewer's `interests`/`spec`, so the badge is an honest (if simple) heuristic rather than a stored fake number.
-- **`supabase/migrations/0010_job_applications.sql`** — `job_applications` (composite PK `(job_id, applicant_id)`, no extra columns — the UI never collected a cover message). RLS: the applicant can select/insert their own; the job's `author_id` can also select applications to their own listing (`job_applications_select_employer`). `Market`'s `applyToJob()` treats a `23505` (duplicate) insert error as success (idempotent re-click) rather than surfacing it. **"Ver candidatos"** — shown instead of Guardar/Candidatar on jobs where `j.authorId === me.id` — opens a modal (`openApplicants()`) listing everyone who applied (joined to `profiles`), with a "Contactar" button per applicant calling `get_or_create_dm()`, same as everywhere else in the app. `loadJobs()` embeds `job_applications(applicant_id)` to get a per-job `applicantsCount` for the button label.
-- **`supabase/migrations/0005_messages.sql`** — `conversations`/`conversation_participants`/`messages`, originally 1:1-only. A `is_conversation_participant()` SECURITY DEFINER function backs the RLS policies (needed to avoid recursive-RLS on `conversation_participants` checking itself), and `get_or_create_dm(other_user_id)` is an RPC the client calls to find-or-create a *direct* thread without duplicating it on repeat opens. Message attachments reuse the existing `post-media` bucket under `${me.id}/messages/...`. `messages` is added to the `supabase_realtime` publication so `Community` can subscribe to new messages in the open conversation via `supabase.channel(...).on("postgres_changes", ...)`.
-- **`supabase/migrations/0008_fix_group_conversation_select.sql`** — corrective migration found during testing: creating a group does `insert into conversations(...).select().single()` from the client, unlike DMs (which go through the RLS-bypassing `get_or_create_dm()` RPC). Right after that insert, the creator isn't a participant yet — `conversation_participants` rows are added in a separate, later request — so the original `conversations_select_participant` policy blocked reading the just-created row back. Fixed by widening that policy to `is_conversation_participant(id) or created_by = auth.uid()`.
-- **`supabase/migrations/0007_groups_and_meetings.sql`** — **groups reuse 0005's tables** rather than a parallel schema: it adds `is_group`/`name`/`avatar` columns to `conversations` and re-scopes `get_or_create_dm` (via `create or replace`) to only match non-group, exactly-2-participant conversations, so a 2-person group can never be mistaken for a DM. No new RLS was needed for group messaging itself — `conversation_participants_insert` (from 0005) already allows the creator to add N invitees at creation time. In `Community`, `loadThreads()` fetches both DMs and groups in one pass (splitting on `is_group` client-side) into separate `conversations`/`groups` state; the messages sub-tab and groups sub-tab now share one merged chat pane (`(sub==="messages"||sub==="groups")`), branching only the left-hand list and the chat header (`sel.isGroup`) — `sendMsg`/`handleFile`/`Bubble`/realtime are all shared unchanged. Opening a group also fetches its participant list into `groupMembers`, used to label non-`me` senders in the thread (group chats have no such disambiguation need for DMs). This migration also adds `meetings` (`host_id`, `title`, `scheduled_at timestamptz`, `type`) + `meeting_participants` (same insert-policy shape as `conversation_participants`) — `scheduled_at` is a real timestamp (the UI already collected a `datetime-local` value), which let the Community "calendar" sub-tab's date bucketing ("hoje"/"amanhã"/"próximos dias") be computed from actual dates instead of the string-prefix match the old hardcoded mock array used (that mock array also shadowed the outer `meetings` state under the same name — a pre-existing bug, now fixed as a side effect).
-- **`supabase/migrations/0006_notifications.sql`** — `notifications` (`recipient_id`, `actor_id`, `type` restricted to `like`/`comment`/`case_comment`/`msg`, `target` text snippet, `read`), RLS scoped to `recipient_id = auth.uid()` for select/update/delete and **no insert policy at all** — rows are only ever created by four SECURITY DEFINER trigger functions (`notify_post_like`/`notify_post_comment`/`notify_case_comment`/`notify_new_message`, mirroring the `security definer` pattern already used for `handle_post_comment_change` etc.) that fire on `post_likes`/`post_comments`/`soap_case_comments`/`messages` inserts. `notify_new_message` fans out to every other participant, so a group message notifies the whole group. `notifications` is added to `supabase_realtime`; `VetConnect()` loads the initial list on mount and subscribes to new inserts (`mapNotifRow()`), replacing the old client-only `pushNotif()` + `setTimeout` demo engine entirely. `NotifPanel`'s mark-read/mark-all/dismiss now write through to the table (`supabase.from("notifications").update/delete`) instead of only touching local state.
-- **`ExpertMap`** (Clinic → 🗺️ Mapa de Especialistas) now queries `profiles` directly (excluding yourself, filterable by `specialty`) instead of the mock `EXPERTS_MAP` array — since `profiles` has no city-level location field, the old fake "interactive map with pins" visual was dropped in favor of a plain filtered list (matching `SearchHub`'s honest-data style); "Contactar" calls the same `get_or_create_dm()` RPC as `Community`'s ✉️+ button and switches to the Community tab, rather than the old fake "✓ Enviado!" toast that didn't do anything. `Onboarding` step 3 previously showed a "colegas sugeridos" list from the mock `USERS` array with a fake follow button (there's no real follow system anywhere in the app) — that's been replaced with a plain review card of what the user just entered (name/specialty/country/license/interests) before account creation.
-- **`supabase/migrations/0009_diagnosis_history.sql`** — `diagnosis_history` (`author_id`, `species`/`breed`/`age`/`sex`/`symptoms`, `result jsonb`), replacing `AIDiagnosis`'s old per-browser `usePersistentState("vc_ai_history", ...)`. Unlike the public-content tables, RLS scopes `select` to `auth.uid() = author_id` too (not `using (true)`) — this is private clinical scratch data, not something meant to be visible to other vets. `run()` inserts a row on a successful diagnosis and prepends the mapped result (`mapHistoryRow()`) to local state; deleting a history entry also deletes the row.
-- **`supabase/migrations/0011_market_items.sql`** — `market_items` (`seller_id`, `title`, `cat` restricted to `Equipamento`/`Negócio`/`Stock`, `price`, `cond`, `loc`, `img`, `description`), same public-select/own-write RLS shape as `jobs`. The mock data's fake `rating`/`verified` fields were dropped (no review or verification system) rather than persisted. `Market`'s "Contactar" button on a listing now calls `get_or_create_dm()` + inserts a real message with the pre-filled inquiry text, instead of just flipping a local `contactSent` flag; a "Ver conversa" button in the success state jumps to Community. The "Contactar" button itself is hidden on your own listings.
-- **`supabase/migrations/0012_courses_and_live_events.sql`** — `courses` + `course_enrollments`, and `live_events` + `live_event_registrations` + `live_event_messages` (realtime-enabled, same shape as `messages`). **The actual video stream/playback stays a non-functional placeholder** — no third-party streaming service is integrated, so `Learn`'s "watch" screen still just shows a static icon/title/description card; only the metadata, registration, enrollment, and live chat around it are real. Critically, **"live" vs "upcoming" status is never stored** — it's derived client-side (`mapLiveEventRow()`) from `scheduled_at` + `duration_minutes` compared to `Date.now()`, so it can't drift from reality the way a manually-set flag could. The mock data's fake `viewers`/`rating`/`reviews` fields are dropped in favor of real registrant/enrollment counts (`live_event_registrations`/`course_enrollments`, embedded via PostgREST joins and counted client-side). `Home`'s "AO VIVO" banner and `Community`'s calendar tab both independently query `live_events` and re-derive live/date-bucket status the same way — there's no shared cache. `Learn`'s "+Publicar" button opens a create-event or create-course form depending on the active sub-tab (`newEventOpen`/`newCourseOpen`); the "Transmita o seu Evento" broadcast/schedule buttons remain placeholder toasts since there's genuinely no way to start a real broadcast.
-- **Not yet DB-backed**: nothing that represents real user activity — see the "Mock data block" bullet above for what's left and why (reference/catalog content, plus live video/calling which needs a third-party service this project doesn't have configured).
-
-## Previous architecture (in git history, `HEAD`)
-
-If work resumes on the Supabase/Vercel split instead of the single-file artifact, the prior commit had:
-
-```
-supabase/migrations/  — SQL run manually in the Supabase SQL editor (schema + RLS + triggers)
-src/
-  App.jsx              — AuthProvider + 5-tab shell (feed/messages/jobs/soap/profile)
-  main.jsx             — React root/mount
-  styles.js            — shared inline style primitives
-  context/AuthContext.jsx — session + profile state (useAuth())
-  components/{auth,layout,feed,messages,jobs,soap,profile}/
-  lib/
-    api.js       — callDiagnosis(), callJobsReport() — POST to /api/*, never call Anthropic from the browser
-    supabase.js  — Supabase client singleton (anon key)
-    db.js        — the only place that calls supabase.from(...); one named function per table/operation
-api/
-  _anthropic.js  — shared server helper (leading "_" = not a route): callAnthropic(), extractJson()
-  diagnosis.js   — POST /api/diagnosis
-  jobs-report.js — POST /api/jobs-report
-```
-
-The key architectural rule from that version, worth preserving if it's resurrected: **two different API-access patterns, don't mix them up**. Anthropic calls are secret-key server-side proxies (`api/*.js` via `callAnthropic()`); Supabase calls go straight from the browser using the anon key, with all access control enforced by Postgres RLS policies in `supabase/migrations/*.sql` (new table → RLS policy first, then a `db.js` function — never add an `/api/*` route for Supabase reads/writes, never use the service-role key client-side).
-
-Env vars for that setup: `ANTHROPIC_API_KEY` (required, server-only), `ANTHROPIC_MODEL` (optional), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` — see `git show HEAD:.env.example`.
 
 ## Commands
 
 ```bash
 npm install
-npm run dev       # Vite dev server, frontend only — /api/* is NOT proxied, so AI features 404 locally
-vercel dev        # frontend + api/*.js functions together (needs `npm i -g vercel` once, and ANTHROPIC_API_KEY in .env.local)
+npm run dev       # Vite, frontend only — /api/* is NOT proxied, so AI features 404
+vercel dev        # frontend + api/*.js together; needs ANTHROPIC_API_KEY in .env.local
 npm run build     # vite build -> dist/
-npm run preview   # preview the production build
+npm run preview   # serve dist/
 ```
 
-No test runner or linter is configured.
+- No lint, no test runner, no test files. There is no test command and no single-test command. Verify UI changes by running the app, and verify the build with `npm run build`.
+- Local env: `cp env.example .env.local`, then fill in `ANTHROPIC_API_KEY` (and the optional provider keys), `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 
-Local env: `cp env.example .env.local` and set `ANTHROPIC_API_KEY`.
+## Architecture of `App.jsx`
+
+Everything is one file, styled with inline style objects. There is no CSS framework.
+
+- **Theme**: `LIGHT`/`DARK` tokens and the style factories `card()`, `btn()`, `inp()`, `tag()`, `ava()`. Each takes the active theme `C`.
+- **i18n**: `LANGS`, `TR`, `getTR(lang, key)`, read via `t(key)`. Missing keys fall back to Portuguese.
+- **Navigation**: `useState` tab switching (`mainTab`), no router. The `TABS` map at the bottom of `VetConnect()` maps tab ids to components. `ActiveComp` receives `C`, `t`, `isMobile`, `setMainTab`, `me`, `profileLoaded`, `onSignOut`, `onProfileSaved`, and the settings props (`email`, `settings`, `directoryVisible`, `dark`, `setDark`, `currentLang`, `setLangOpen`, `onSettingsSaved`).
+- **Components must stay at module scope.** `Settings` used to be defined inside `VetConnect()`, which made React remount it on every render and lose its local state. `SettingsScreen` is now top-level. Any new tab component should follow the same rule.
+- **Auth state** lives in `VetConnect()`: `session` (`getSession` + `onAuthStateChange`), `profile` (row from `profiles`, refetched via `refreshProfile`), and a derived `me` object shaped like a user record (`id`, `name`, `spec`, `avatar`, `country`, `license`, `bio`, `interests`). `onboarded = !!session` and `onboardLoaded = session !== undefined` gate the splash/login/app branching.
+- **Notifications**: `notifications` rows arrive through a realtime subscription in `VetConnect()` and are shown in `NotifPanel` and as toasts. The browser `Notification` is gated by `profile.settings.notif_push`, read through `notifPrefsRef` because the subscription is set up once per user.
+- **AI calls**: `AIDiagnosis` posts to `/api/diagnosis` and `Market`'s report modal posts to `/api/jobs-report`. Both send `provider` (`anthropic` default, `gemini`, `openai`, `deepseek`). The response echoes `provider`, and a diagnosis is stored in `diagnosis_history.result`. Errors carry `.status` and `{error: string}`.
+- **Mock data**: only reference/catalog content remains (`SUPPLIERS`, `DRUGS`, `PROTOCOLS`, `SYMPTOMS`, `LEARN_ADS`, lab panel definitions). Everything that represents user or clinical activity reads from Supabase.
+- **Persistence gap**: `usePersistentState` uses `window.storage`, which exists only in the Claude.ai artifact sandbox. In the Vercel build it is `undefined`, so `vc_dark`, `vc_lang` and `vc_beta_dismissed` silently don't persist. Use `localStorage` (with try/catch) for these.
+- **Not real**: live video and calls. `Learn`'s watch screen and the `meet.vetconnect.pt` room links are placeholders, because no streaming or calling service is integrated.
+
+## Data access and RLS
+
+Two access patterns, and they must not be mixed:
+
+- **AI calls** go through `api/*.js` with secret keys on the server. Never call a provider from the browser.
+- **Supabase** is called directly from the browser with the anon key. All access control lives in RLS. Add the table with its policies in a new migration before you write the query.
+
+Patterns in the schema:
+
+- Most tables: `select` for any authenticated user, writes only by the owner (`auth.uid() = author_id` or the equivalent column).
+- Private tables, owner-only `select`: `diagnosis_history`, `notifications`, `saved_jobs`, `course_enrollments`, `account_deletion_requests`. `job_applications` is readable by the applicant and by the job's author.
+- `is_conversation_participant()` is `SECURITY DEFINER`. It exists to avoid recursive RLS on `conversation_participants`.
+- DMs are created with the `get_or_create_dm(other_user_id)` RPC. Groups reuse the `conversations` table with `is_group = true`, and the creator inserts the participants afterwards.
+- Counters (`likes_count`, `comments_count`, `replies_count`) are maintained by triggers. Read them, don't recount.
+- Notifications are created only by `SECURITY DEFINER` triggers. Clients have no insert policy on `notifications`.
+- Live-event status ("live" / "upcoming") is never stored. It is derived from `scheduled_at` and `duration_minutes` on the client.
+- `profiles.directory_visible` hides a user from people search and the specialists map. `profiles.settings` (jsonb) holds that user's preferences. Both are written by the owner through `profiles_update_own`.
+- `account_deletion_requests` accepts client inserts only. Actually deleting an auth user needs the service-role key on the server, which doesn't exist in this repo yet.
+- Storage: public bucket `post-media`. Uploads go under `${auth.uid()}/…`, and public read is deliberate because the UI uses plain `<img>`/`<video>` tags.
+
+## Known gaps
+
+Don't assume these are safe, and check them before relying on the surrounding code:
+
+- `/api/diagnosis` and `/api/jobs-report` have **no authentication**, no rate limit, no input-size limit, and `Access-Control-Allow-Origin: *`. Any caller can spend the provider keys. `ALLOWED_ORIGIN` is documented in `env.example` but not read by the code.
+- `conversation_participants_insert` (migration 0005) allows `user_id = auth.uid()` on any conversation. Any authenticated user who knows a conversation UUID can join it and read its history. `meeting_participants` has the same shape, but meetings are public by design.
+- `api/*.js` sends the Gemini key in the URL query string (`?key=`). Move it to the `x-goog-api-key` header.
+- Settings options that are stored but have no effect yet: email digests and live-event notifications (no sender or reminder job), identity verification (a submission is recorded, but there is no review or "verified" state), and account deletion (a request is recorded, but nothing processes it).
+
+## Gotchas
+
+- **Migrations are not applied automatically.** A new migration only takes effect after you run it in the Supabase SQL editor. Settings writes and certification writes fail until migrations 0013 and 0014 have run.
+- `README.md` is the Portuguese deployment guide. It is the only place that documents the Vercel steps.
+- The previous Supabase/Vercel multi-file architecture (`src/components/`, `src/lib/db.js`, `api/_anthropic.js`) exists only in git history, before commit `16dbeae`. Use `git show ab3f2fd:<path>` to read it.
