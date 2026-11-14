@@ -1331,6 +1331,8 @@ function Community({ C, t, isMobile, me }) {
   const toggleMember = (id, list, setList) =>
     setList(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
   const [videoRoomUrl, setVideoRoomUrl] = useState(null);
+  const [meetingDetail, setMeetingDetail] = useState(null);
+  const openRoom = (url) => { setVideoRoomUrl(url); window.open(url, "_blank", "noopener"); };
   const [comFb, triggerComFb] = useFeedback();
   const showList = !isMobile || !sel;
   const showChat = !isMobile || sel;
@@ -1521,10 +1523,13 @@ function Community({ C, t, isMobile, me }) {
     setMeetingsLoading(true);
     const { data, error } = await supabase
       .from("meetings")
-      .select("*, host:host_id(full_name), meeting_participants(user_id)")
+      .select("*, host:host_id(full_name), meeting_participants(user_id, profile:user_id(full_name))")
       .order("scheduled_at", { ascending: true, nullsFirst: false });
     if(error){ console.error(error); setMeetingsLoading(false); return; }
-    setMeetings((data||[]).map(row=>mapMeetingRow(row, (row.meeting_participants||[]).length)));
+    setMeetings((data||[]).map(row=>({
+      ...mapMeetingRow(row, (row.meeting_participants||[]).length),
+      people: (row.meeting_participants||[]).map(p=>p.profile?.full_name||"Utilizador"),
+    })));
     setMeetingsLoading(false);
   };
   useEffect(() => { loadMeetings(); }, []);
@@ -1557,6 +1562,21 @@ function Community({ C, t, isMobile, me }) {
   const updateThreadPreview = (id, patch) => {
     setConversations(prev=>prev.map(c=>c.id===id?{...c,...patch}:c));
     setGroups(prev=>prev.map(g=>g.id===id?{...g,...patch}:g));
+  };
+
+  // "Vídeo" in a chat: create a room, post its link in the conversation and open it.
+  const startVideoCall = async () => {
+    if(!sel) return;
+    const url = roomUrlFor(`vetconnect-${randomRoomId()}`);
+    const text = `📹 Videochamada: ${url}`;
+    const tempId = `tmp-${Date.now()}`;
+    setMessages(c=>[...c,{id:tempId,authorId:me.id,from:"me",text,time:now()}]);
+    const { data, error } = await supabase.from("messages").insert({ conversation_id: sel.id, author_id: me.id, text }).select().single();
+    if(error){ console.error(error); setMessages(c=>c.filter(m=>m.id!==tempId)); return; }
+    setMessages(prev=>prev.map(m=>m.id===tempId?{...m,id:data.id}:m));
+    updateThreadPreview(sel.id, { last:text, time:"agora" });
+    openRoom(url);
+    triggerComFb("videocall");
   };
 
   const sendMsg = async () => {
@@ -1826,7 +1846,7 @@ function Community({ C, t, isMobile, me }) {
                   </div>
                 </div>
                 <button onClick={()=>setCall(!call)} style={{...btn(C,call?"danger":"outline",true),fontSize:11}}><Icon d={ic.phone} size={13}/>{!isMobile&&(call?"Terminar":"Chamar")}</button>
-                <button onClick={()=>{triggerComFb("videocall");}} aria-label="Iniciar videochamada"
+                <button onClick={startVideoCall} aria-label="Iniciar videochamada"
                   style={{...btn(C,comFb==="videocall"?"primary":"outline",true),fontSize:11}}>
                   <Icon d={ic.cam} size={13} color={comFb==="videocall"?"#fff":C.teal}/>{!isMobile&&(comFb==="videocall"?" A ligar…":"Vídeo")}
                 </button>
@@ -1961,22 +1981,50 @@ function Community({ C, t, isMobile, me }) {
                 <div style={{flex:1}}>
                   <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
                     <span style={tag(C.teal)}>{m.type}</span>
-                    <span style={tag(C.emerald)}>✓ Confirmado</span>
+                    {m.scheduledAt?(
+                      new Date(m.scheduledAt)<new Date()
+                        ? <span style={tag(C.sub)}>Decorrida</span>
+                        : <span style={tag(C.emerald)}>Agendada</span>
+                    ):<span style={tag(C.sub)}>Sem data</span>}
                   </div>
                   <div style={{fontWeight:700,fontSize:isMobile?13:14,color:C.text,marginBottom:4}}>{m.title}</div>
                   <div style={{fontSize:12,color:C.sub}}>📅 {m.date} · 👥 {m.participants}</div>
                 </div>
                 <div style={{display:"flex",gap:6,flexDirection:isMobile?"column":"row",flexShrink:0}}>
-                  <button onClick={()=>triggerComFb("detail_"+m.id)} style={btn(C,"outline",true)}>
-                    {comFb===("detail_"+m.id)?"✓ Partilhado":"Detalhes"}
-                  </button>
-                  <button onClick={()=>{setVideoRoomUrl(`https://meet.vetconnect.pt/room-${m.id}`);triggerComFb("enter_"+m.id);}} style={{...btn(C,"primary",true),background:C.emerald}}>
+                  <button onClick={()=>setMeetingDetail(m)} style={btn(C,"outline",true)}>Detalhes</button>
+                  <button onClick={()=>{openRoom(roomUrlFor(`vetconnect-${m.id}`));triggerComFb("enter_"+m.id);}} style={{...btn(C,"primary",true),background:C.emerald}}>
                     {comFb===("enter_"+m.id)?"🟢 A entrar…":"Entrar"}
                   </button>
                 </div>
               </div>
             </div>
           ))}
+          {meetingDetail&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setMeetingDetail(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:16,width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 40px rgba(0,0,0,0.25)",border:`1px solid ${C.border}`}}>
+                <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                  <div style={{fontWeight:800,fontSize:15,color:C.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{meetingDetail.title}</div>
+                  <button onClick={()=>setMeetingDetail(null)} aria-label={t("close")} style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:20,flexShrink:0}}>✕</button>
+                </div>
+                <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:12}}>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><span style={tag(C.teal)}>{meetingDetail.type}</span></div>
+                  <div style={{fontSize:13,color:C.text}}>📅 {meetingDetail.date}</div>
+                  <div style={{fontSize:13,color:C.text}}>👤 Organizador: {meetingDetail.host}</div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:C.sub,marginBottom:6}}>PARTICIPANTES ({meetingDetail.people.length})</div>
+                    {meetingDetail.people.length===0&&<div style={{fontSize:12,color:C.sub}}>Sem participantes registados.</div>}
+                    {meetingDetail.people.map((name,i)=>(
+                      <div key={i} style={{fontSize:13,color:C.text,padding:"4px 0"}}>{name}</div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}>
+                    <button onClick={()=>setMeetingDetail(null)} style={btn(C,"outline",true)}>Fechar</button>
+                    <button onClick={()=>{openRoom(roomUrlFor(`vetconnect-${meetingDetail.id}`));setMeetingDetail(null);}} style={{...btn(C,"primary",true),background:C.emerald}}>Entrar na sala</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {videoRoomUrl&&(
             <div style={{...card(C),background:C.emerald+"15",border:`1.5px solid ${C.emerald}`,marginBottom:14}}>
               <div style={{fontWeight:700,fontSize:13,color:C.emerald,marginBottom:6}}>🟢 Sala de videochamada criada</div>
@@ -1992,7 +2040,7 @@ function Community({ C, t, isMobile, me }) {
             <div style={{fontWeight:700,fontSize:15,marginBottom:6}}>🎥 Videochamada Rápida</div>
             <div style={{fontSize:12,opacity:0.7,marginBottom:14}}>Sala instantânea — partilhe o link com colegas</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <button onClick={()=>{const url=`https://meet.vetconnect.pt/room-${Date.now()}`;setVideoRoomUrl(url);setSub("meetings");}}
+              <button onClick={()=>{openRoom(roomUrlFor(`vetconnect-${randomRoomId()}`));setSub("meetings");}}
                 style={{background:C.teal,color:"#fff",border:"none",borderRadius:8,padding:"9px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{"📹 "+t("video_call")}</button>
               <button onClick={()=>setNewMeetingOpen(true)}
                 style={{background:"rgba(255,255,255,0.12)",color:"#fff",border:"none",borderRadius:8,padding:"9px 16px",fontSize:12,cursor:"pointer"}}>{"📅 "+t("schedule")}</button>
@@ -2714,6 +2762,82 @@ function SupplierDetail({ s, C, t, isMobile, onBack, me }) {
   const [supFb, triggerSupFb] = useFeedback();
   const uploadRef = useRef(null);
 
+  // Catalogues uploaded for this supplier (table supplier_documents, migration 0017)
+  const [dbDocs, setDbDocs] = useState([]);
+  const [canUpload, setCanUpload] = useState(false);
+  const [docBusy, setDocBusy] = useState(false);
+  const [docError, setDocError] = useState("");
+  const [docSaved, setDocSaved] = useState(false);
+  const CATALOGUE_EXT = {
+    "application/pdf":"pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":"docx",
+    "application/vnd.ms-excel":"xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":"xlsx",
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("supplier_documents")
+        .select("id, uploader_id, name, path, size_bytes, created_at")
+        .eq("supplier_id", String(s.id))
+        .order("created_at", { ascending: false });
+      if(cancelled) return;
+      if(error){ console.error(error); return; }
+      setDbDocs(data||[]);
+    })();
+    return () => { cancelled = true; };
+  }, [s.id]);
+
+  useEffect(() => {
+    if(!me?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("supplier_applications")
+        .select("id")
+        .eq("applicant_id", me.id)
+        .eq("status", "approved")
+        .eq("catalog_supplier_id", String(s.id))
+        .maybeSingle();
+      if(cancelled) return;
+      if(error){ console.error(error); return; }
+      setCanUpload(!!data);
+    })();
+    return () => { cancelled = true; };
+  }, [me?.id, s.id]);
+
+  const catalogueUrl = (path) => supabase.storage.from("post-media").getPublicUrl(path).data.publicUrl;
+
+  const uploadCatalogue = async (file) => {
+    if(!file) return;
+    if(!CATALOGUE_EXT[file.type]){ setDocError("Formatos aceites: PDF, DOCX, XLS, XLSX."); return; }
+    if(file.size > 10 * 1024 * 1024){ setDocError("O ficheiro pode ter no máximo 10 MB."); return; }
+    setDocBusy(true); setDocError(""); setDocSaved(false);
+    const bucket = supabase.storage.from("post-media");
+    const path = `${me.id}/catalogue-${Date.now()}.${CATALOGUE_EXT[file.type]}`;
+    const { error: upErr } = await bucket.upload(path, file, { contentType: file.type });
+    if(upErr){ setDocBusy(false); setDocError(upErr.message); return; }
+    const { data, error } = await supabase
+      .from("supplier_documents")
+      .insert({ supplier_id: String(s.id), uploader_id: me.id, name: file.name, path, size_bytes: file.size })
+      .select("id, uploader_id, name, path, size_bytes, created_at")
+      .single();
+    if(error){ await bucket.remove([path]); setDocBusy(false); setDocError(error.message); return; }
+    setDbDocs(prev => [data, ...prev]);
+    setDocSaved(true);
+    setDocBusy(false);
+  };
+
+  const deleteCatalogue = async (doc) => {
+    if(!window.confirm(`Apagar "${doc.name}"?`)) return;
+    const { error } = await supabase.from("supplier_documents").delete().eq("id", doc.id);
+    if(error){ setDocError(error.message); return; }
+    await supabase.storage.from("post-media").remove([doc.path]);
+    setDbDocs(prev => prev.filter(d => d.id !== doc.id));
+  };
+
   const videos = (s.media?.filter(m=>m.type==="video")||[]).filter(v=>{
     // Only videos ≤ 5 minutes — parse "M:SS" format
     const [mins] = (v.duration||"0:00").split(":").map(Number);
@@ -2857,7 +2981,27 @@ function SupplierDetail({ s, C, t, isMobile, onBack, me }) {
       {/* ── DOCUMENTS ── */}
       {supTab==="docs"&&(
         <div>
-          {docs.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:14}}>Sem catálogo ou preçário disponível de momento.</div>}
+          {docs.length===0&&dbDocs.length===0&&<div style={{textAlign:"center",color:C.sub,padding:"30px 0",fontSize:14}}>Sem catálogo ou preçário disponível de momento.</div>}
+          {dbDocs.length>0&&(
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:10}}>
+              {dbDocs.map(d=>(
+                <div key={d.id} style={{...card(C,{marginBottom:0}),display:"flex",alignItems:"center",gap:14}}>
+                  <div style={{width:48,height:48,borderRadius:12,background:s.color+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>📎</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
+                    <div style={{fontSize:10,color:C.sub}}>{(d.size_bytes/1024/1024).toFixed(1)} MB · {new Date(d.created_at).toLocaleDateString("pt-PT")}</div>
+                  </div>
+                  <a href={catalogueUrl(d.path)} target="_blank" rel="noopener noreferrer" aria-label={`Descarregar ${d.name}`}
+                    style={{...btn(C,"primary",true),background:s.color,fontSize:11,flexShrink:0,textDecoration:"none",display:"inline-flex",alignItems:"center"}}>
+                    ⬇️{!isMobile&&" Descarregar"}
+                  </a>
+                  {d.uploader_id===me.id&&(
+                    <button onClick={()=>deleteCatalogue(d)} aria-label={`Apagar ${d.name}`} style={{background:"none",border:"none",cursor:"pointer",color:C.sub,fontSize:16,flexShrink:0}}>🗑️</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {docs.map((d,i)=>(
               <div key={i} style={{...card(C,{marginBottom:0}),display:"flex",alignItems:"center",gap:14}}>
@@ -2881,25 +3025,24 @@ function SupplierDetail({ s, C, t, isMobile, onBack, me }) {
               </div>
             ))}
           </div>
-          {/* Upload CTA — 1 doc limit */}
-          <div style={{...card(C,{marginTop:14,marginBottom:0}),border:`2px dashed ${C.border}`,textAlign:"center",padding:"20px 18px"}}>
-            <div style={{fontSize:28,marginBottom:6}}>📤</div>
-            <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:4}}>Área reservada ao fornecedor</div>
-            <div style={{fontSize:12,color:C.sub,marginBottom:4}}>Carregue o seu catálogo ou preçário (máx. 1 documento)</div>
-            {docs.length>=1
-              ? <div style={{fontSize:11,color:C.rose,marginBottom:12,fontWeight:600}}>⚠️ Limite atingido — substitua o documento existente para carregar um novo</div>
-              : <div style={{fontSize:11,color:C.sub,marginBottom:12}}>Formatos aceites: PDF, DOCX, XLS, XLSX</div>
-            }
-            {/* Hidden upload input triggered via ref */}
-            <input ref={uploadRef} type="file" accept=".pdf,.docx,.xls,.xlsx"
-              style={{position:"fixed",top:-9999,left:-9999,width:1,height:1,opacity:0}}
-              onChange={e=>{if(e.target.files?.[0])triggerSupFb("upload");e.target.value="";}}/>
-            <button onClick={()=>uploadRef.current?.click()}
-              style={{...btn(C,"outline",true),borderColor:s.color,color:s.color,fontSize:12}}>
-              {docs.length>=1?"🔄 Substituir documento":"📤 Carregar catálogo/preçário"}
-            </button>
-            {supFb==="upload"&&<div style={{fontSize:11,color:C.emerald,marginTop:8,fontWeight:600}}>✓ Documento carregado com sucesso!</div>}
-          </div>
+          {canUpload?(
+            <div style={{...card(C,{marginTop:14,marginBottom:0}),border:`2px dashed ${C.border}`,textAlign:"center",padding:"20px 18px"}}>
+              <div style={{fontSize:28,marginBottom:6}}>📤</div>
+              <div style={{fontWeight:700,fontSize:13,color:C.text,marginBottom:4}}>Área reservada ao fornecedor</div>
+              <div style={{fontSize:12,color:C.sub,marginBottom:4}}>Carregue catálogos ou preçários para {s.name}</div>
+              <div style={{fontSize:11,color:C.sub,marginBottom:12}}>Formatos aceites: PDF, DOCX, XLS, XLSX · máx. 10 MB</div>
+              <input ref={uploadRef} type="file" accept=".pdf,.docx,.xls,.xlsx" style={{display:"none"}}
+                onChange={e=>{ const file=e.target.files?.[0]; e.target.value=""; uploadCatalogue(file); }}/>
+              <button onClick={()=>uploadRef.current?.click()} disabled={docBusy}
+                style={{...btn(C,"outline",true),borderColor:s.color,color:s.color,fontSize:12,opacity:docBusy?0.7:1}}>
+                {docBusy?"A carregar…":"📤 Carregar catálogo/preçário"}
+              </button>
+              {docError&&<div style={{fontSize:11,color:C.rose,marginTop:10}}>⚠️ {docError}</div>}
+              {docSaved&&<div style={{fontSize:11,color:C.emerald,marginTop:10,fontWeight:600}}>✓ Documento carregado com sucesso!</div>}
+            </div>
+          ):(
+            <div style={{fontSize:11,color:C.sub,textAlign:"center",marginTop:14}}>O carregamento de catálogos é reservado a fornecedores aprovados para esta marca.</div>
+          )}
         </div>
       )}
     </div>
@@ -4926,6 +5069,14 @@ function Profile({ C, t, isMobile, me, profileLoaded, onProfileSaved }) {
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Definições ────────────────────────────────────────────────────────────────
+// Video rooms use the public Jitsi Meet instance, so no account or API key is needed.
+// Anyone with the link can join; room names are random UUIDs so they cannot be guessed.
+const VIDEO_BASE = "https://meet.jit.si";
+const randomRoomId = () => (typeof crypto !== "undefined" && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : Date.now().toString(36) + Math.random().toString(36).slice(2);
+const roomUrlFor = (name) => `${VIDEO_BASE}/${name}`;
+
 // Shows the user's photo when there is one, otherwise the initials badge.
 function Avatar({ C, size=40, online=false, src, initials, style, ...rest }) {
   const base = ava(C, size, online);
